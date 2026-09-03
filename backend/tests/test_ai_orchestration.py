@@ -309,3 +309,72 @@ async def test_user_prompt_handles_empty_fields():
     assert "GET" in prompt
     assert "/ping" in prompt
     assert "(none)" in prompt or "(none required)" in prompt or "(no" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Phase B — probe-grounded generation: the observed-response block is
+# appended to the prompt only when both observed_status and observed_body
+# are supplied; the plain (no-probe) prompt is untouched otherwise.
+# ---------------------------------------------------------------------------
+
+
+async def test_generate_tests_prompt_unchanged_when_no_observed_response():
+    """The default call (observed_status/observed_body both None) must
+    send exactly build_user_prompt(endpoint), byte for byte — this is the
+    "flag off" guarantee for Phase B.
+    """
+    from app.ai.prompts.test_generation import build_user_prompt
+
+    provider = MockProvider()
+    provider.seed_structured(TestCaseList, _make_seeded_response())
+    service = AIOrchestrationService(provider=provider)
+    endpoint = _make_endpoint()
+
+    await service.generate_tests(endpoint)
+
+    assert provider.calls[0]["prompt"] == build_user_prompt(endpoint)
+
+
+async def test_generate_tests_appends_observed_response_block_when_given():
+    provider = MockProvider()
+    provider.seed_structured(TestCaseList, _make_seeded_response())
+    service = AIOrchestrationService(provider=provider)
+    endpoint = _make_endpoint()
+
+    await service.generate_tests(
+        endpoint,
+        observed_status=200,
+        observed_body='{"message": "otp generated", "otp_provider": "Static"}',
+    )
+
+    prompt = provider.calls[0]["prompt"]
+    assert "observed" in prompt.lower()
+    assert "Status: 200" in prompt
+    assert "otp generated" in prompt
+    assert "otp_provider" in prompt
+
+
+async def test_generate_tests_omits_observed_block_when_only_one_of_the_pair_given():
+    """Both observed_status and observed_body are required together — a
+    partial value (shouldn't happen from probe_service, but defensively)
+    must not produce a malformed half-block."""
+    provider = MockProvider()
+    provider.seed_structured(TestCaseList, _make_seeded_response())
+    service = AIOrchestrationService(provider=provider)
+    endpoint = _make_endpoint()
+
+    await service.generate_tests(endpoint, observed_status=200, observed_body=None)
+
+    assert "observed" not in provider.calls[0]["prompt"].lower()
+
+
+def test_build_observed_response_block_contains_status_and_body():
+    from app.ai.prompts.test_generation import build_observed_response_block
+
+    block = build_observed_response_block(200, '{"message": "otp generated"}')
+
+    assert "200" in block
+    assert "otp generated" in block
+    assert "grounding" in block
+    assert "observed" in block
+    assert "inferred" in block

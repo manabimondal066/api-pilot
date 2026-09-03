@@ -180,6 +180,23 @@ class EnvironmentOut(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class GenerateTestsIn(BaseModel):
+    """Request body for POST /api/endpoints/{id}/generate-tests. Entirely
+    optional — a request with no body (today's behaviour) is equivalent to
+    every field at its default, i.e. no probing.
+
+    use_probe: opt-in to probe-grounded generation (Phase B) for this call.
+    Has no effect unless the server-side ENABLE_PROBE_GENERATION setting is
+    also on — both must be true for a probe to happen.
+    environment_id: which environment to resolve/send the probe request
+    against. Required (functionally) for use_probe to do anything; a probe
+    silently skips if this is absent.
+    """
+
+    use_probe: bool = False
+    environment_id: UUID | None = None
+
+
 class TestOut(BaseModel):
     """A single AI-generated (or user-authored) test case.
 

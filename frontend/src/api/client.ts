@@ -353,9 +353,17 @@ export const api = {
     });
   },
 
-  async generateTests(endpointId: Uuid): Promise<TestOut[]> {
+  async generateTests(
+    endpointId: Uuid,
+    opts?: { useProbe?: boolean; environmentId?: Uuid | null }
+  ): Promise<TestOut[]> {
+    const useProbe = opts?.useProbe ?? false;
     return request<TestOut[]>(`/api/endpoints/${endpointId}/generate-tests`, {
       method: "POST",
+      body: JSON.stringify({
+        use_probe: useProbe,
+        environment_id: useProbe ? opts?.environmentId ?? null : null,
+      }),
     });
   },
 

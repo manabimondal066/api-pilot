@@ -797,6 +797,11 @@ export function EndpointTests({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedTest, setSelectedTest] = useState<TestOut | null>(null);
   const [runStates, setRunStates] = useState<Record<Uuid, RunState>>({});
+  // Opt-in to probe-grounded generation (Phase B) — unchecked by default.
+  // Only takes effect when the server's ENABLE_PROBE_GENERATION setting is
+  // also on and the suite was imported from cURL; otherwise it's silently
+  // a no-op, same as today.
+  const [useProbe, setUseProbe] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -880,7 +885,7 @@ export function EndpointTests({
     setStatus("waiting");
     setErrorMessage(null);
     api
-      .generateTests(endpointId)
+      .generateTests(endpointId, { useProbe, environmentId })
       .then((data) => {
         setTests(data);
         setStatus("success");
@@ -942,6 +947,17 @@ export function EndpointTests({
           </span>
         )}
       </div>
+
+      <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <input
+          type="checkbox"
+          checked={useProbe}
+          onChange={(e) => setUseProbe(e.target.checked)}
+          disabled={waiting}
+          className="h-3.5 w-3.5"
+        />
+        Check the API first (sends one real request)
+      </label>
 
       {waiting && <WaitingIndicator />}
 

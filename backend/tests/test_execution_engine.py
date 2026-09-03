@@ -395,6 +395,37 @@ async def test_execute_passed_when_only_unimplemented_type_validation_fails():
     outcome = await execute(test, env)
 
     assert outcome.status == "passed"
+
+
+@respx.mock
+async def test_execute_passed_when_unimplemented_type_explicitly_stamped_binding():
+    """The unimplemented-type override applies at verdict time regardless
+    of the stored `enforcement` value — even a RESPONSE_TIME validation
+    explicitly stamped 'binding' can't drag a test down, since the engine
+    can't actually evaluate it (see execution_engine._effective_enforcement).
+    """
+    respx.get("https://api.example.com/pet/42").mock(
+        return_value=httpx.Response(200, json={"id": 42})
+    )
+    test = _test(
+        method="GET",
+        path="/pet/{{petId}}",
+        validations=[
+            {"type": "STATUS_CODE", "expected": 200, "description": "is 200"},
+            {
+                "type": "RESPONSE_TIME",
+                "expected": 500,
+                "description": "responds fast",
+                "enforcement": "binding",
+            },
+        ],
+    )
+    env = _environment(variables={"petId": "42"})
+
+    outcome = await execute(test, env)
+
+    assert outcome.status == "passed"
+    assert outcome.validation_results[1]["enforcement"] == "informational"
     assert outcome.validation_results[1]["enforcement"] == "informational"
 
 

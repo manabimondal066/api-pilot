@@ -2,8 +2,14 @@
 
 Public functions
 ----------------
-generate_tests_for_endpoint(db, endpoint_id, workspace_id) -> list[Test]
+generate_tests_for_endpoint(db, endpoint_id, workspace_id, use_probe=False, environment_id=None) -> list[Test]
     Calls AIOrchestrationService synchronously and persists the result.
+    When ENABLE_PROBE_GENERATION is on, use_probe is True, and the
+    endpoint's suite was imported from cURL, replays the endpoint's stored
+    example request once first (app.services.probe_service) and grounds
+    generation in the real observed response — see Phase B in the project
+    brief. Any probe failure or a non-cURL source falls through silently
+    to today's ungrounded generation.
 
 get_test(db, test_id, workspace_id) -> Test
     Single test, raises TestNotFoundError if absent.
@@ -41,6 +47,7 @@ intended V1 behaviour, not a placeholder for one.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from uuid import UUID
 
@@ -52,9 +59,12 @@ from app.ai.providers.errors import classify_provider_error, strip_reset_marker
 from app.ai.providers.factory import get_llm_provider
 from app.ai.schemas.test_case import Validation
 from app.ai.service import AIOrchestrationError, AIOrchestrationService
+from app.config import get_settings
 from app.models.endpoint import Endpoint
+from app.models.spec import Spec
 from app.models.suite import Suite
 from app.models.test import Test
+from app.parsers.enums import SpecSource
 from app.parsers.models import ParsedEndpoint
 from app.services import (
     EndpointNotFoundError,
@@ -62,7 +72,10 @@ from app.services import (
     TestNotFoundError,
     ValidationNotFoundError,
 )
+from app.services import probe_service
 from app.services.validation_enforcement import BINDING, classify_enforcement
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -117,6 +130,51 @@ async def _load_endpoint(
     return endpoint
 
 
+async def _get_spec_source(db: AsyncSession, suite_id: UUID) -> str | None:
+    """The Spec.source ('SWAGGER' | 'POSTMAN' | 'CURL') for *suite_id*'s
+    parent spec — used to gate probe-grounded generation (Phase B) to
+    cURL-imported suites only, since a Swagger/Postman endpoint's stored
+    `body_schema` is a JSON Schema fragment, not real example data;
+    replaying it verbatim would send nonsense.
+    """
+    result = await db.execute(
+        select(Spec.source).join(Suite, Suite.spec_id == Spec.id).where(Suite.id == suite_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _probe_for_generation(
+    db: AsyncSession,
+    endpoint: Endpoint,
+    workspace_id: UUID,
+    use_probe: bool,
+    environment_id: UUID | None,
+) -> tuple[int | None, str | None]:
+    """Decide whether to probe (Phase B gating: flag + use_probe + cURL
+    source) and, if so, attempt it. Returns (observed_status, observed_body)
+    — both None when probing is off, not requested, the source isn't
+    cURL, or the probe itself failed. Never raises: a probe is entirely
+    best-effort (see app.services.probe_service.probe_endpoint).
+    """
+    if not (get_settings().enable_probe_generation and use_probe):
+        return None, None
+
+    spec_source = await _get_spec_source(db, endpoint.suite_id)
+    if spec_source != SpecSource.CURL.value:
+        logger.warning(
+            "generate_tests_for_endpoint: endpoint=%s use_probe=True but suite spec "
+            "source is %r, not CURL — skipping probe",
+            endpoint.id,
+            spec_source,
+        )
+        return None, None
+
+    result = await probe_service.probe_endpoint(db, endpoint, environment_id, workspace_id)
+    if result is None:
+        return None, None
+    return result.status_code, result.body_text
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -126,11 +184,18 @@ async def generate_tests_for_endpoint(
     db: AsyncSession,
     endpoint_id: UUID,
     workspace_id: UUID,
+    use_probe: bool = False,
+    environment_id: UUID | None = None,
 ) -> list[Test]:
     """Generate test cases for *endpoint_id* and persist them as Test rows.
 
     This is a synchronous, request-blocking call to the configured LLM
     provider (see module docstring) — there is no async job queue in V1.
+
+    *use_probe*/*environment_id* (Phase B — probe-grounded generation):
+    both default to off/None, matching today's behaviour exactly. Probing
+    only happens when settings.enable_probe_generation is also on (default
+    False) — see _probe_for_generation.
 
     Raises:
         EndpointNotFoundError: if the endpoint doesn't exist in the workspace.
@@ -139,10 +204,17 @@ async def generate_tests_for_endpoint(
     endpoint = await _load_endpoint(db, endpoint_id, workspace_id)
     parsed_endpoint = ParsedEndpoint.model_validate(endpoint.endpoint_schema)
 
+    observed_status, observed_body = await _probe_for_generation(
+        db, endpoint, workspace_id, use_probe, environment_id
+    )
+
     try:
         service = AIOrchestrationService()
         generated = await service.generate_tests(
-            parsed_endpoint, endpoint_id=str(endpoint.id)
+            parsed_endpoint,
+            endpoint_id=str(endpoint.id),
+            observed_status=observed_status,
+            observed_body=observed_body,
         )
     except (AIOrchestrationError, LLMProviderError) as exc:
         info = classify_provider_error(exc)

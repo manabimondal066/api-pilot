@@ -101,6 +101,29 @@ async def test_generate_tests_persists_and_returns_tests(
     assert test["validations"][0]["type"] == "STATUS_CODE"
 
 
+async def test_generate_tests_accepts_use_probe_body_with_flag_off(
+    client: AsyncClient,
+    db: AsyncSession,
+) -> None:
+    """Phase B: the route accepts use_probe/environment_id in the request
+    body. ENABLE_PROBE_GENERATION is off by default (untouched here), so
+    this must behave identically to the no-body call above — no probe, no
+    error, same generated test.
+    """
+    _seed_one_test()
+    endpoint_id = await _import_and_get_endpoint_id(db)
+
+    response = await client.post(
+        f"/api/endpoints/{endpoint_id}/generate-tests",
+        json={"use_probe": True, "environment_id": "00000000-0000-0000-0000-000000000099"},
+    )
+
+    assert response.status_code == 201, response.text
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["name"] == "Create pet with valid input returns 200"
+
+
 # ---------------------------------------------------------------------------
 # Test 2 — generate-tests on unknown endpoint → 404
 # ---------------------------------------------------------------------------

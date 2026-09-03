@@ -10,6 +10,7 @@ from typing import Any
 from app.ai.prompts.test_generation import (
     PROMPT_VERSION,
     SYSTEM_PROMPT,
+    build_observed_response_block,
     build_user_prompt,
 )
 from app.ai.providers.base import LLMProvider, LLMProviderError
@@ -44,8 +45,18 @@ class AIOrchestrationService:
         endpoint: ParsedEndpoint,
         endpoint_id: str | None = None,
         max_retries: int = 1,
+        observed_status: int | None = None,
+        observed_body: str | None = None,
     ) -> list[TestCase]:
         """Generate test cases for one endpoint.
+
+        *observed_status*/*observed_body* (Phase B — probe-grounded
+        generation): when both are given, a clearly-delimited block
+        describing the real observed response is appended to the user
+        prompt (app.ai.prompts.test_generation.build_observed_response_block).
+        When either is None (the default — no probe, or a probe that
+        failed), the prompt is exactly `build_user_prompt(endpoint)`, byte
+        for byte, same as before this parameter existed.
 
         Returns:
             List of TestCase objects with endpoint_id populated.
@@ -54,6 +65,8 @@ class AIOrchestrationService:
             AIOrchestrationError: if all retry attempts fail.
         """
         user_prompt = build_user_prompt(endpoint)
+        if observed_status is not None and observed_body is not None:
+            user_prompt = f"{user_prompt}\n{build_observed_response_block(observed_status, observed_body)}"
         last_error: Exception | None = None
 
         for attempt in range(max_retries + 1):
