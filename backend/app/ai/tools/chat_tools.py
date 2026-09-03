@@ -232,6 +232,23 @@ async def remove_validation(ctx: ToolContext, test_id: str, validation_id: str) 
     return _test_summary(updated)
 
 
+async def ask_user(
+    ctx: ToolContext,
+    question: str,
+    options: list[str],
+    allow_free_text: bool = True,
+) -> dict[str, Any]:
+    """Pose a clarifying question to the user instead of guessing (PRD
+    §16.2, §17). Not a mutation — this doesn't touch the database; the
+    frontend renders `question`/`options` as clickable buttons on this
+    turn's reply, and a click sends that option's text back as the user's
+    next chat message, exactly as if they had typed it.
+    """
+    if not (2 <= len(options) <= 4):
+        raise ToolError("options must contain between 2 and 4 choices.")
+    return {"question": question, "options": options, "allow_free_text": allow_free_text}
+
+
 ToolFn = Callable[..., Awaitable[Any]]
 
 TOOL_IMPLS: dict[str, ToolFn] = {
@@ -242,6 +259,7 @@ TOOL_IMPLS: dict[str, ToolFn] = {
     "remove_validation": remove_validation,
     "get_last_execution": get_last_execution,
     "update_test_body": update_test_body,
+    "ask_user": ask_user,
 }
 
 # Tools that mutate state — the agent loop surfaces their results in the
@@ -380,6 +398,34 @@ TOOL_SPECS: list[dict[str, Any]] = [
                     },
                 },
                 "required": ["test_id", "body"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ask_user",
+            "description": (
+                "Ask the user a clarifying question instead of guessing, when you're "
+                "missing information you can't work out from the suite, the endpoint, "
+                "or an observed response. Ground the options in real data where "
+                "possible (e.g. actual field names from a response you've seen)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string", "description": "A short, specific question."},
+                    "options": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "2 to 4 short answers the user can pick from.",
+                    },
+                    "allow_free_text": {
+                        "type": "boolean",
+                        "description": "Whether the user may type something else instead. Default true.",
+                    },
+                },
+                "required": ["question", "options"],
             },
         },
     },
