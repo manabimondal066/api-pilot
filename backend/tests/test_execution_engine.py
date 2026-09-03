@@ -269,34 +269,36 @@ async def test_execute_failed_outcome_when_validation_fails():
 
 
 # ---------------------------------------------------------------------------
-# Fix B — grounded validations: enforcement drives the verdict, not a flat
-# all()
+# Internal enforcement safety net: a guessed/unimplemented validation is
+# recorded but can never fail the test on its own — verdict stays two-way
+# (passed/failed).
 # ---------------------------------------------------------------------------
 
 
-def test_evaluate_one_defaults_enforcement_to_enforced_when_absent():
+def test_evaluate_one_defaults_enforcement_to_binding_when_absent():
     """A validation with no stored `enforcement` (i.e. persisted before
-    this feature existed) must be treated as enforced, same as today."""
+    this classification existed) must be treated as binding, same as
+    today."""
     validations = [{"type": "STATUS_CODE", "expected": 200, "description": "is 200"}]
     results = run_validations(validations, _response(status_code=200))
-    assert results[0]["enforcement"] == "enforced"
+    assert results[0]["enforcement"] == "binding"
 
 
-def test_evaluate_one_reads_stored_advisory_enforcement():
+def test_evaluate_one_reads_stored_informational_enforcement():
     validations = [
         {
             "type": "FIELD_EXISTS",
             "target": "$.missing",
             "description": "guess",
-            "enforcement": "advisory",
+            "enforcement": "informational",
         }
     ]
     results = run_validations(validations, _response(json_body={}))
-    assert results[0]["enforcement"] == "advisory"
+    assert results[0]["enforcement"] == "informational"
     assert results[0]["passed"] is False
 
 
-def test_evaluate_one_forces_advisory_for_unimplemented_type_even_if_stored_enforced():
+def test_evaluate_one_forces_informational_for_unimplemented_type_even_if_stored_binding():
     """The unimplemented-type override applies live, regardless of what was
     stored — see execution_engine._effective_enforcement."""
     validations = [
@@ -304,19 +306,21 @@ def test_evaluate_one_forces_advisory_for_unimplemented_type_even_if_stored_enfo
             "type": "FIELD_REGEX",
             "target": "$.x",
             "description": "unsupported",
-            "enforcement": "enforced",
+            "enforcement": "binding",
         }
     ]
     results = run_validations(validations, _response(json_body={"x": "y"}))
-    assert results[0]["enforcement"] == "advisory"
+    assert results[0]["enforcement"] == "informational"
 
 
 @respx.mock
-async def test_execute_inconclusive_when_only_advisory_validation_fails():
-    """Enforced STATUS_CODE passes; an advisory FIELD_EXISTS fails (field
-    genuinely absent from the real response) — the request behaved
-    correctly by every check that's trusted, so the verdict is
-    'inconclusive', not 'failed'.
+async def test_execute_passed_when_only_informational_validation_fails():
+    """Binding STATUS_CODE passes; an informational FIELD_EXISTS fails
+    (field genuinely absent from the real response, e.g. a guessed field
+    name) — the request behaved correctly by every check that counts, so
+    the verdict is 'passed'. The individual validation result still
+    records the failure plainly — nothing hidden, it just can't drag the
+    verdict down.
     """
     respx.get("https://api.example.com/pet/42").mock(
         return_value=httpx.Response(200, json={"id": 42, "access": "tok-1"})
@@ -330,7 +334,7 @@ async def test_execute_inconclusive_when_only_advisory_validation_fails():
                 "type": "FIELD_EXISTS",
                 "target": "$.token",
                 "description": "has a token",
-                "enforcement": "advisory",
+                "enforcement": "informational",
             },
         ],
     )
@@ -338,14 +342,13 @@ async def test_execute_inconclusive_when_only_advisory_validation_fails():
 
     outcome = await execute(test, env)
 
-    assert outcome.status == "inconclusive"
-    # Individual results are still recorded plainly — nothing hidden.
+    assert outcome.status == "passed"
     assert outcome.validation_results[0]["passed"] is True
     assert outcome.validation_results[1]["passed"] is False
 
 
 @respx.mock
-async def test_execute_failed_when_enforced_validation_fails_even_with_passing_advisory():
+async def test_execute_failed_when_binding_validation_fails_even_with_passing_informational():
     respx.get("https://api.example.com/pet/42").mock(
         return_value=httpx.Response(404, json={"id": 42})
     )
@@ -358,7 +361,7 @@ async def test_execute_failed_when_enforced_validation_fails_even_with_passing_a
                 "type": "FIELD_EXISTS",
                 "target": "$.id",
                 "description": "has id",
-                "enforcement": "advisory",
+                "enforcement": "informational",
             },
         ],
     )
@@ -370,11 +373,11 @@ async def test_execute_failed_when_enforced_validation_fails_even_with_passing_a
 
 
 @respx.mock
-async def test_execute_passed_when_unimplemented_type_would_have_failed_before():
-    """Demonstrates the accepted behaviour change (item 7): a test carrying
-    only an unimplemented validation type (RESPONSE_TIME — always a
-    synthetic 'not yet supported' failure) alongside a passing enforced
-    STATUS_CODE now reports 'inconclusive' rather than 'failed'.
+async def test_execute_passed_when_only_unimplemented_type_validation_fails():
+    """A test carrying only an unimplemented validation type (RESPONSE_TIME
+    — always a synthetic 'not yet supported' failure) alongside a passing
+    binding STATUS_CODE reports 'passed', not 'failed' — the unsupported
+    check is informational and can't drag the verdict down.
     """
     respx.get("https://api.example.com/pet/42").mock(
         return_value=httpx.Response(200, json={"id": 42})
@@ -391,8 +394,8 @@ async def test_execute_passed_when_unimplemented_type_would_have_failed_before()
 
     outcome = await execute(test, env)
 
-    assert outcome.status == "inconclusive"
-    assert outcome.validation_results[1]["enforcement"] == "advisory"
+    assert outcome.status == "passed"
+    assert outcome.validation_results[1]["enforcement"] == "informational"
 
 
 @respx.mock

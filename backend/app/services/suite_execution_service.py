@@ -18,8 +18,6 @@ has run. If a dependency fails validations ('failed'), errors ('error'),
 or is itself skipped, every test that depends on it (directly or
 transitively) is recorded as status='skipped' with
 error="skipped (dependency failed)" — the request is never sent.
-A dependency that finishes 'inconclusive' does NOT block its dependents
-(see "Variable propagation" below).
 
 Cycle handling — reject up front, run nothing
 -----------------------------------------------
@@ -37,15 +35,12 @@ involved — no Execution rows are created for a rejected run.
 Variable propagation
 ---------------------
 A shared `variables_context` dict accumulates every `Extraction` resolved
-from a *passed* or *inconclusive* test's response (execution_engine.
-extract_variables) — 'inconclusive' means every enforced validation still
-passed, only ungrounded advisory ones didn't, so its extractions are just
-as trustworthy as a 'passed' test's (Fix B — see app/services/
-validation_enforcement.py). Downstream tests' `{{variable}}` references
-resolve against this context before falling back to the environment's own
-`variables` — see execution_engine.build_request's `extra_variables`
-parameter. A 'failed' test's extractions are discarded — "if a test fails,
-don't trust anything it produced."
+from a *passed* test's response (execution_engine.extract_variables).
+Downstream tests' `{{variable}}` references resolve against this context
+before falling back to the environment's own `variables` — see
+execution_engine.build_request's `extra_variables` parameter. A 'failed'
+test's extractions are discarded — "if a test fails, don't trust anything
+it produced."
 
 Synchronous by design — same "no queue yet" reasoning as execute_test
 (app/services/execution_service.py). Do not add a queue or polling
@@ -197,11 +192,7 @@ async def execute_suite(
             blocked.add(test_id)
         else:
             outcome = await run_execution(test, environment, extra_variables=variables_context)
-            # 'inconclusive' (Fix B) means every *enforced* validation
-            # passed — only ungrounded advisory ones didn't. That's not a
-            # real failure, so it must not block dependents or discard
-            # extractions the same way 'passed' doesn't.
-            if outcome.status in ("passed", "inconclusive"):
+            if outcome.status == "passed":
                 variables_context.update(outcome.extracted_variables)
             else:
                 blocked.add(test_id)

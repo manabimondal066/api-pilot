@@ -17,8 +17,8 @@ from app.ai.providers.factory import get_llm_provider
 from app.ai.schemas.test_case import TestCase, TestCaseList
 from app.parsers.models import ParsedEndpoint
 from app.services.validation_enforcement import (
+    BINDING,
     BODY_LEVEL_TYPES,
-    ENFORCED,
     classify_enforcement,
 )
 
@@ -122,25 +122,31 @@ class AIOrchestrationService:
                 raise AIOrchestrationError(
                     f"Test {t.name!r} has no validations — AI output is incomplete"
                 )
-            # Grounding is required on every body-level validation (Fix B,
-            # brief §3.4) — a malformed/incomplete model response here fails
-            # safely via the existing retry-then-error path in
-            # generate_tests, same as the zero-validations check above.
+            # A body-level validation with no `grounding` is a guess — that's
+            # expected and fine (it's how a suite with no documented schema
+            # or observed response gets any body-level coverage at all), so
+            # this is a warning, not a generation failure. classify_enforcement
+            # already keeps a guessed field from ever failing a test on its
+            # own (see app.services.validation_enforcement).
             for v in t.validations:
                 if v.type.value in BODY_LEVEL_TYPES and v.grounding is None:
-                    raise AIOrchestrationError(
-                        f"Test {t.name!r} validation {v.description!r} inspects the "
-                        "response body but has no grounding set — AI output is incomplete"
+                    logger.warning(
+                        "generate_tests: test %r for endpoint=%s validation %r "
+                        "inspects the response body with no grounding set — "
+                        "treating it as a guess (informational, can't fail the test)",
+                        t.name,
+                        endpoint_id,
+                        v.description,
                     )
-            # Diagnostic only (Fix B item 8): a test whose validations are
-            # all advisory can never report 'failed' — not wrong, but worth
-            # knowing about. Never drops the test or fabricates a validation.
+            # Diagnostic only: a test whose validations are all informational
+            # can never report 'failed' — not wrong, but worth knowing about.
+            # Never drops the test or fabricates a validation.
             enforcements = [classify_enforcement(v.model_dump(mode="json")) for v in t.validations]
-            if ENFORCED not in enforcements:
+            if BINDING not in enforcements:
                 logger.warning(
-                    "generate_tests: test %r for endpoint=%s has zero enforced "
-                    "validations (all %d are advisory) — its verdict can never be "
-                    "'failed'",
+                    "generate_tests: test %r for endpoint=%s has zero binding "
+                    "validations (all %d are informational) — its verdict can "
+                    "never be 'failed'",
                     t.name,
                     endpoint_id,
                     len(t.validations),

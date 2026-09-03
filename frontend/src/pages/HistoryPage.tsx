@@ -1,13 +1,5 @@
 import { useEffect, useState } from "react";
-import {
-  ChevronRight,
-  CircleAlert,
-  CircleCheck,
-  CircleHelp,
-  CircleX,
-  History,
-  MinusCircle,
-} from "lucide-react";
+import { ChevronRight, CircleAlert, CircleCheck, CircleX, History, MinusCircle } from "lucide-react";
 import { api, ApiError, type ExecutionOut, type TestOut } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -20,9 +12,7 @@ import { TestDetailPanel, type RunState } from "@/components/EndpointTests";
 // way the live run view does.
 // ---------------------------------------------------------------------------
 
-function resultStatus(
-  execution: ExecutionOut
-): "passed" | "failed" | "inconclusive" | "error" | "skipped" {
+function resultStatus(execution: ExecutionOut): "passed" | "failed" | "error" | "skipped" {
   return execution.results[0]?.status ?? "error";
 }
 
@@ -39,13 +29,6 @@ function StatusBadge({ execution }: { execution: ExecutionOut }) {
     return (
       <Badge variant="danger" icon={<CircleX />}>
         Failed
-      </Badge>
-    );
-  }
-  if (status === "inconclusive") {
-    return (
-      <Badge variant="info" icon={<CircleHelp />}>
-        Inconclusive
       </Badge>
     );
   }

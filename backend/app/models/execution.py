@@ -5,15 +5,7 @@ run against an Environment, and its ExecutionResult captures exactly what
 was sent, what came back, and which validations passed or failed.
 
 Execution.status values:      'running' | 'completed' | 'error' | 'skipped'
-ExecutionResult.status values: 'passed' | 'failed' | 'inconclusive' | 'error' | 'skipped'
-
-'inconclusive' (Fix B — grounded validations, app/services/validation_
-enforcement.py): every *enforced* validation passed, but one or more
-*advisory* (ungrounded) validations failed — the request behaved correctly
-by every check we trust, but at least one unverified guess didn't match.
-Deliberately distinct from 'failed', which only 'enforced' validations can
-produce; see app/services/execution_engine.py execute() for the exact
-aggregation rule.
+ExecutionResult.status values: 'passed' | 'failed' | 'error' | 'skipped'
 
 V1 runs a single test synchronously (see app/services/execution_service.py
 docstring) so an Execution always has exactly one ExecutionResult. The two

@@ -3,7 +3,6 @@ import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   CircleCheck,
-  CircleHelp,
   CircleX,
   Loader2,
   Network,
@@ -143,38 +142,26 @@ function messageFromSuiteRunError(e: unknown): string {
   return "Couldn't run the suite. Try again.";
 }
 
-// Tallies each test's result status into the buckets the summary reports.
-// 'error' (the request itself couldn't complete — timeout, connection
-// failure, etc.) is folded into "failed" for this headline count; each
-// test's own card/badge still shows Error distinctly. 'inconclusive' (Fix B
-// — every enforced validation passed, only advisory ones didn't) gets its
-// own bucket rather than being folded into "failed" — an advisory failure
-// must never read as a failure in the aggregate either.
+// Tallies each test's result status into the three buckets the summary
+// reports. 'error' (the request itself couldn't complete — timeout,
+// connection failure, etc.) is folded into "failed" for this headline
+// count; each test's own card/badge still shows Error distinctly.
 function summarizeSuiteRun(resultsByTestId: Record<Uuid, ExecutionOut>): {
   passed: number;
-  inconclusive: number;
   failed: number;
   skipped: number;
   total: number;
 } {
   let passed = 0;
-  let inconclusive = 0;
   let failed = 0;
   let skipped = 0;
   for (const execution of Object.values(resultsByTestId)) {
     const status = execution.results[0]?.status;
     if (status === "passed") passed += 1;
-    else if (status === "inconclusive") inconclusive += 1;
     else if (status === "skipped") skipped += 1;
     else failed += 1; // "failed" | "error" | missing result
   }
-  return {
-    passed,
-    inconclusive,
-    failed,
-    skipped,
-    total: Object.keys(resultsByTestId).length,
-  };
+  return { passed, failed, skipped, total: Object.keys(resultsByTestId).length };
 }
 
 function SuiteRunSummary({
@@ -182,7 +169,7 @@ function SuiteRunSummary({
 }: {
   resultsByTestId: Record<Uuid, ExecutionOut>;
 }) {
-  const { passed, inconclusive, failed, skipped, total } = summarizeSuiteRun(resultsByTestId);
+  const { passed, failed, skipped, total } = summarizeSuiteRun(resultsByTestId);
 
   if (total === 0) {
     return (
@@ -200,11 +187,6 @@ function SuiteRunSummary({
       <span className="inline-flex items-center gap-1 font-semibold text-success">
         <CircleCheck className="h-4 w-4" /> {passed}
       </span>
-      {inconclusive > 0 && (
-        <span className="inline-flex items-center gap-1 font-semibold text-info">
-          <CircleHelp className="h-4 w-4" /> {inconclusive}
-        </span>
-      )}
       <span className="inline-flex items-center gap-1 font-semibold text-danger">
         <CircleX className="h-4 w-4" /> {failed}
       </span>

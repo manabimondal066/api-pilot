@@ -62,7 +62,7 @@ from app.services import (
     TestNotFoundError,
     ValidationNotFoundError,
 )
-from app.services.validation_enforcement import classify_enforcement
+from app.services.validation_enforcement import BINDING, classify_enforcement
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -86,12 +86,14 @@ def _classify_generation_error(exc: Exception) -> str:
     return classify_provider_error(exc).reason
 
 
-def _dump_validation(validation: Validation) -> dict[str, Any]:
-    """Dump one Validation to JSON and stamp its deterministic `enforcement`
-    (Fix B — app.services.validation_enforcement.classify_enforcement) —
-    the single place a validation's enforcement is decided and persisted,
-    shared by AI generation (below) and add_validation, so both write paths
-    stay consistent.
+def _dump_generated_validation(validation: Validation) -> dict[str, Any]:
+    """Dump one AI-generated Validation to JSON and stamp its deterministic
+    `enforcement` (app.services.validation_enforcement.classify_enforcement)
+    — the internal safety net that keeps a guessed field name from ever
+    failing a test on its own. Only used for AI-generated validations; a
+    user/chat-added validation always stamps 'binding' directly (see
+    add_validation below) — the classifier never runs on those, because a
+    check someone explicitly asked for must always count.
     """
     dumped = validation.model_dump(mode="json")
     dumped["enforcement"] = classify_enforcement(dumped)
@@ -170,7 +172,7 @@ async def generate_tests_for_endpoint(
             headers=t.headers,
             query_params=t.query_params,
             body=t.body,
-            validations=[_dump_validation(v) for v in t.validations],
+            validations=[_dump_generated_validation(v) for v in t.validations],
             extractions=[e.model_dump(mode="json") for e in t.extractions],
             depends_on=t.depends_on,
             confidence=t.confidence,
@@ -235,12 +237,20 @@ async def add_validation(
     test_case.py) before being persisted — malformed input from the caller
     (including the chat agent) never reaches the JSONB column as-is.
 
+    Always stamped `enforcement='binding'` — a check the user (or the chat
+    assistant on the user's behalf) explicitly asked for must always be
+    able to count, regardless of its type or grounding. The classifier
+    (app.services.validation_enforcement.classify_enforcement) only runs
+    on AI-generated validations, never here.
+
     Raises:
         TestNotFoundError: if the test doesn't exist in the workspace.
     """
     test = await get_test(db, test_id, workspace_id)
     validated = Validation.model_validate(validation)
-    test.validations = [*(test.validations or []), _dump_validation(validated)]
+    dumped = validated.model_dump(mode="json")
+    dumped["enforcement"] = BINDING
+    test.validations = [*(test.validations or []), dumped]
     test.version += 1
     await db.commit()
     await db.refresh(test)

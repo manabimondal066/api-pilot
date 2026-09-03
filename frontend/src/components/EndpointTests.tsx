@@ -2,7 +2,6 @@ import { useEffect, useState, type ReactNode } from "react";
 import {
   CircleAlert,
   CircleCheck,
-  CircleHelp,
   CircleX,
   Loader2,
   MinusCircle,
@@ -86,9 +85,7 @@ function computeSkipReason(
     .map((edge) => edge.depends_on_test_id)
     .filter((depId) => {
       const status = suiteResultsByTestId[depId]?.results[0]?.status;
-      // 'inconclusive' does not block dependents (Fix B) — it must not be
-      // named as a cause of a skip it didn't actually cause.
-      return status !== undefined && status !== "passed" && status !== "inconclusive";
+      return status !== undefined && status !== "passed";
     });
 
   if (unmetDependencyIds.length === 0) {
@@ -137,25 +134,12 @@ function WaitingIndicator() {
 // Validation line — human-readable text (PRD §3.4 default view)
 // ---------------------------------------------------------------------------
 
-function AdvisoryTag() {
-  return (
-    <span
-      className="shrink-0 rounded-full border border-info-border bg-info-bg px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-info"
-      title="Not grounded in a documented schema or an observed response — suggested, but can't fail this test on its own."
-    >
-      Advisory
-    </span>
-  );
-}
-
 function ValidationLine({
   description,
   severity,
-  enforcement,
 }: {
   description: string;
   severity: string;
-  enforcement?: string;
 }) {
   const dotColor = severity === "CRITICAL" ? "bg-danger" : "bg-warning";
   return (
@@ -164,8 +148,7 @@ function ValidationLine({
         className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${dotColor}`}
         aria-hidden="true"
       />
-      <span className="min-w-0 flex-1">{description}</span>
-      {enforcement === "advisory" && <AdvisoryTag />}
+      <span>{description}</span>
     </li>
   );
 }
@@ -218,13 +201,6 @@ function ResultBadge({ runState }: { runState: RunState }) {
       return (
         <Badge variant="danger" icon={<CircleX />} className="animate-scale-in">
           Failed
-        </Badge>
-      );
-    }
-    if (status === "inconclusive") {
-      return (
-        <Badge variant="info" icon={<CircleHelp />} className="animate-scale-in">
-          Inconclusive
         </Badge>
       );
     }
@@ -285,7 +261,6 @@ function TestCard({
                 key={v.id ?? i}
                 description={v.description}
                 severity={v.severity}
-                enforcement={v.enforcement}
               />
             ))}
           </ul>
@@ -377,20 +352,21 @@ function ExpectedValidationLine({ v }: { v: TestOut["validations"][number] }) {
           className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${dotColor}`}
           aria-hidden="true"
         />
-        <div className="min-w-0 flex-1 space-y-0.5">
-          <div className="flex items-start justify-between gap-2">
-            <span className="text-sm">{v.description}</span>
-            {v.enforcement === "advisory" && <AdvisoryTag />}
-          </div>
+        <div className="min-w-0 space-y-0.5">
+          <div className="text-sm">{v.description}</div>
           <div className="flex flex-wrap gap-x-3 text-xs text-muted-foreground font-mono">
             <span>type={v.type}</span>
             <span>severity={v.severity}</span>
-            {v.enforcement && <span>enforcement={v.enforcement}</span>}
             {v.target && <span>target={v.target}</span>}
             {v.expected !== null && v.expected !== undefined && (
               <span>expected={JSON.stringify(v.expected)}</span>
             )}
           </div>
+          {v.enforcement === "informational" && (
+            <p className="text-xs text-muted-foreground italic">
+              Not counted — field name was not verified against a real response.
+            </p>
+          )}
         </div>
       </div>
     </li>
@@ -702,23 +678,8 @@ export function TestDetailPanel({
 
         {runState.kind === "done" && runState.result.status !== "skipped" && (
           <DetailSection
-            title={`Response — ${
-              runState.result.status === "passed"
-                ? "Passed"
-                : runState.result.status === "inconclusive"
-                  ? "Inconclusive"
-                  : runState.result.status === "failed"
-                    ? "Failed"
-                    : "Error"
-            }`}
+            title={`Response — ${runState.result.status === "passed" ? "Passed" : runState.result.status === "failed" ? "Failed" : "Error"}`}
           >
-            {runState.result.status === "inconclusive" && (
-              <p className="text-sm text-info mb-2">
-                The request succeeded and all verified checks passed. One or
-                more suggested checks could not be confirmed against the
-                response.
-              </p>
-            )}
             <ResponseSection result={runState.result} />
           </DetailSection>
         )}

@@ -21,12 +21,12 @@ execute(test, environment) -> ExecutionOutcome
     an ExecutionResult. Does not touch the DB — see
     app/services/execution_service.py for persistence.
 
-    Verdict (Fix B — grounded validations): a validation's `enforcement`
-    ('enforced' | 'advisory', see app/services/validation_enforcement.py)
-    decides whether its result can affect the overall verdict. Any
-    *enforced* validation failing -> 'failed'. All enforced validations
-    passing but one or more *advisory* validations failing -> 'inconclusive'.
-    Everything passing (or no advisory failures) -> 'passed'.
+    Verdict: only a validation's `enforcement` of 'binding' (see
+    app/services/validation_enforcement.py) can affect the overall verdict —
+    any binding validation failing -> 'failed', otherwise -> 'passed'.
+    'informational' validations (an unimplemented type, or a guessed field
+    name with no real evidence behind it) still run and their result is
+    still recorded, they just can never fail the test on their own.
 """
 
 from __future__ import annotations
@@ -179,10 +179,12 @@ _SUPPORTED_VALIDATION_TYPES = {"STATUS_CODE", "FIELD_EXISTS", "FIELD_EQUALS"}
 
 
 def _effective_enforcement(validation: dict[str, Any]) -> str:
-    """The enforcement actually used to decide a test's verdict (Fix B).
+    """The enforcement actually used to decide a test's verdict — the
+    internal safety net that stops a guessed field name (or a validation
+    type the engine can't even evaluate) from producing a false failure.
 
-    This is the validation's stored `enforcement` (defaulting to 'enforced'
-    for validations persisted before this feature existed — see
+    This is the validation's stored `enforcement` (defaulting to 'binding'
+    for validations persisted before this classification existed — see
     app.services.validation_enforcement.get_enforcement, kept in sync with
     that same default here rather than imported, to avoid a circular import:
     that module imports _SUPPORTED_VALIDATION_TYPES from this one), UNLESS
@@ -193,9 +195,9 @@ def _effective_enforcement(validation: dict[str, Any]) -> str:
     validation regardless of when it was persisted.
     """
     if validation.get("type") not in _SUPPORTED_VALIDATION_TYPES:
-        return "advisory"
+        return "informational"
     value = validation.get("enforcement")
-    return value if value in ("enforced", "advisory") else "enforced"
+    return value if value in ("binding", "informational") else "binding"
 
 
 def _resolve_jsonpath(response_json: Any, target: str) -> tuple[bool, Any]:
@@ -310,7 +312,7 @@ def extract_variables(
 
 @dataclass
 class ExecutionOutcome:
-    status: str  # 'passed' | 'failed' | 'inconclusive' | 'error' | 'skipped'
+    status: str  # 'passed' | 'failed' | 'error' | 'skipped'
     request_snapshot: dict[str, Any]
     response_snapshot: dict[str, Any] | None = None
     validation_results: list[dict[str, Any]] = field(default_factory=list)
@@ -384,15 +386,9 @@ async def execute(
     }
 
     validation_results = run_validations(test.validations or [], response)
-    enforced_results = [v for v in validation_results if v.get("enforcement") == "enforced"]
-    advisory_results = [v for v in validation_results if v.get("enforcement") != "enforced"]
-    strict_passed = all(v.get("passed") for v in enforced_results)
-    if not strict_passed:
-        status = "failed"
-    elif any(not v.get("passed") for v in advisory_results):
-        status = "inconclusive"
-    else:
-        status = "passed"
+    binding_results = [v for v in validation_results if v.get("enforcement") == "binding"]
+    passed = all(v.get("passed") for v in binding_results)
+    status = "passed" if passed else "failed"
     extracted_variables = extract_variables(getattr(test, "extractions", None) or [], response_body)
 
     return ExecutionOutcome(

@@ -273,19 +273,20 @@ async def test_suite_execution_skips_downstream_on_failure(
 
 
 # ---------------------------------------------------------------------------
-# Fix B (R4) — an 'inconclusive' result must not block dependents or
-# discard extractions, unlike a genuine 'failed' result
+# An informational validation failure must not block dependents or discard
+# extractions — only a genuine (binding) failure does that
 # ---------------------------------------------------------------------------
 
 
 @respx.mock
-async def test_suite_execution_inconclusive_dependency_does_not_block_downstream(
+async def test_suite_execution_informational_failure_does_not_block_downstream(
     client: AsyncClient, db: AsyncSession
 ) -> None:
-    """Create Pet's enforced STATUS_CODE passes, but an advisory FIELD_EXISTS
-    (a field that genuinely isn't in the response) fails -> 'inconclusive'.
-    Get Pet depends on Create Pet and must still run (not skipped) and must
-    receive the id extracted from Create Pet's response.
+    """Create Pet's binding STATUS_CODE passes, but an informational
+    FIELD_EXISTS (a guessed field that genuinely isn't in the response)
+    fails — the verdict is still 'passed'. Get Pet depends on Create Pet
+    and must still run (not skipped) and must receive the id extracted
+    from Create Pet's response.
     """
     create_route = respx.post("https://api.example.com/pets").mock(
         return_value=httpx.Response(201, json={"id": 99, "name": "Fido"})
@@ -308,7 +309,7 @@ async def test_suite_execution_inconclusive_dependency_does_not_block_downstream
                         "type": "FIELD_EXISTS",
                         "target": "$.token",
                         "description": "has a token",
-                        "enforcement": "advisory",
+                        "enforcement": "informational",
                     },
                 ],
                 "extractions": [{"name": "petId", "source": "$.id"}],
@@ -339,9 +340,9 @@ async def test_suite_execution_inconclusive_dependency_does_not_block_downstream
 
     assert create_route.called and get_route.called
 
-    assert by_test_name["Create Pet"]["results"][0]["status"] == "inconclusive"
-    # Not skipped, and the id extracted from the inconclusive Create Pet
-    # response still resolved into Get Pet's URL.
+    assert by_test_name["Create Pet"]["results"][0]["status"] == "passed"
+    # Not skipped, and the id extracted from Create Pet's response still
+    # resolved into Get Pet's URL.
     assert by_test_name["Get Pet"]["results"][0]["status"] == "passed"
     assert get_route.calls.last.request.url.path == "/pets/99"
 

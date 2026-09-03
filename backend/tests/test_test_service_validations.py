@@ -64,40 +64,29 @@ async def test_add_validation_appends_and_bumps_version(db: AsyncSession):
     assert len(updated.validations) == 2
     assert updated.validations[1]["type"] == "FIELD_EXISTS"
     assert updated.version == 2
-    # Fix B: FIELD_EXISTS with no grounding supplied -> advisory, stamped
-    # server-side (never trusted from the caller).
-    assert updated.validations[1]["enforcement"] == "advisory"
+    # A check the user explicitly asked for always counts — stamped
+    # 'binding' unconditionally, the classifier never runs on it.
+    assert updated.validations[1]["enforcement"] == "binding"
 
 
-async def test_add_validation_stamps_enforced_for_status_code(db: AsyncSession):
+async def test_add_validation_always_stamps_binding_regardless_of_type_or_grounding(
+    db: AsyncSession,
+):
+    """Unlike an AI-generated validation, a user/chat-added one is never run
+    through the classifier — even a type the engine doesn't implement, with
+    no grounding at all, is stamped 'binding' because the user explicitly
+    asked for it.
+    """
     _, test_id = await _create_test(db)
 
     updated = await test_service.add_validation(
         db,
         test_id,
         DEFAULT_WORKSPACE_ID,
-        {"type": "STATUS_CODE", "description": "is 204", "expected": 204},
+        {"type": "RESPONSE_TIME", "description": "responds fast", "expected": 500},
     )
 
-    assert updated.validations[1]["enforcement"] == "enforced"
-
-
-async def test_add_validation_stamps_enforced_when_grounded_in_spec(db: AsyncSession):
-    _, test_id = await _create_test(db)
-
-    updated = await test_service.add_validation(
-        db,
-        test_id,
-        DEFAULT_WORKSPACE_ID,
-        {
-            "type": "FIELD_EXISTS",
-            "description": "Response has id",
-            "target": "$.id",
-            "grounding": "spec",
-        },
-    )
-
-    assert updated.validations[1]["enforcement"] == "enforced"
+    assert updated.validations[1]["enforcement"] == "binding"
 
 
 async def test_add_validation_rejects_malformed_shape(db: AsyncSession):
