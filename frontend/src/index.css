@@ -1,0 +1,319 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap");
+@import "tailwindcss";
+
+/* -------------------------------------------------------------------------
+   API Pilot design system — Tailwind v4 token format.
+   @theme inline maps CSS variables to Tailwind utility classes so that
+   bg-primary, text-foreground, border-border, bg-success-bg, etc. all work.
+   ------------------------------------------------------------------------- */
+
+@theme inline {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --color-background:             var(--background);
+  --color-foreground:             var(--foreground);
+  --color-card:                   var(--card);
+  --color-card-foreground:        var(--card-foreground);
+  --color-popover:                var(--popover);
+  --color-popover-foreground:     var(--popover-foreground);
+  --color-primary:                var(--primary);
+  --color-primary-hover:          var(--primary-hover);
+  --color-primary-foreground:     var(--primary-foreground);
+  --color-secondary:              var(--secondary);
+  --color-secondary-foreground:   var(--secondary-foreground);
+  --color-muted:                  var(--muted);
+  --color-muted-foreground:       var(--muted-foreground);
+  --color-accent:                 var(--accent);
+  --color-accent-foreground:      var(--accent-foreground);
+  --color-destructive:            var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border:                 var(--border);
+  --color-input:                  var(--input);
+  --color-ring:                   var(--ring);
+  --color-ring-offset-background: var(--background);
+
+  /* Brand accents — violet is the primary identity, cyan marks the AI
+     surfaces specifically (chat panel, "thinking" states). */
+  --color-brand:                  var(--brand);
+  --color-brand-2:                var(--brand-2);
+  --color-cyan:                   var(--cyan);
+  --color-cyan-foreground:        var(--cyan-foreground);
+
+  /* Semantic status colors — soft bg + solid text/border trio, each with
+     a light/dark-safe pairing, used for pass/fail/category badges. */
+  --color-success:        var(--success);
+  --color-success-bg:     var(--success-bg);
+  --color-success-border: var(--success-border);
+  --color-warning:        var(--warning);
+  --color-warning-bg:     var(--warning-bg);
+  --color-warning-border: var(--warning-border);
+  --color-danger:         var(--danger);
+  --color-danger-bg:      var(--danger-bg);
+  --color-danger-border:  var(--danger-border);
+  --color-info:           var(--info);
+  --color-info-bg:        var(--info-bg);
+  --color-info-border:    var(--info-border);
+  --color-neutral:        var(--neutral);
+  --color-neutral-bg:     var(--neutral-bg);
+  --color-neutral-border: var(--neutral-border);
+
+  --radius-sm:  calc(var(--radius) - 6px);
+  --radius-md:  calc(var(--radius) - 3px);
+  --radius-lg:  var(--radius);
+  --radius-xl:  calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 10px);
+
+  --shadow-soft: 0 1px 2px 0 rgb(15 15 35 / 0.04), 0 1px 3px 0 rgb(15 15 35 / 0.04);
+  --shadow-card: 0 1px 2px 0 rgb(15 15 35 / 0.03), 0 8px 24px -8px rgb(76 29 149 / 0.12);
+  --shadow-card-hover: 0 2px 8px 0 rgb(15 15 35 / 0.04), 0 16px 40px -12px rgb(76 29 149 / 0.22);
+  --shadow-panel: 0 12px 32px -8px rgb(15 15 35 / 0.18), 0 4px 12px -4px rgb(15 15 35 / 0.12);
+  --shadow-glow: 0 0 0 1px rgb(124 58 237 / 0.08), 0 8px 30px -6px rgb(124 58 237 / 0.35);
+}
+
+/* ---- Light mode ---------------------------------------------------------- */
+:root {
+  --radius: 0.75rem;
+
+  --background:             oklch(0.9910 0.0025 265);
+  --foreground:             oklch(0.1850 0.0250 275);
+
+  --card:                   oklch(1 0 0);
+  --card-foreground:        oklch(0.1850 0.0250 275);
+
+  --popover:                oklch(1 0 0);
+  --popover-foreground:     oklch(0.1850 0.0250 275);
+
+  --primary:                oklch(0.5450 0.2200 293.5);
+  --primary-hover:          oklch(0.4750 0.2150 293.5);
+  --primary-foreground:     oklch(0.9900 0.0050 293.5);
+
+  --brand:                  oklch(0.5450 0.2200 293.5);
+  --brand-2:                oklch(0.6300 0.1900 320);
+  --cyan:                   oklch(0.7250 0.1400 200);
+  --cyan-foreground:        oklch(0.2100 0.0500 220);
+
+  --secondary:              oklch(0.9600 0.0100 285);
+  --secondary-foreground:   oklch(0.2600 0.0350 280);
+
+  --muted:                  oklch(0.9600 0.0080 270);
+  --muted-foreground:       oklch(0.4900 0.0300 275);
+
+  --accent:                 oklch(0.9450 0.0300 293);
+  --accent-foreground:      oklch(0.3300 0.1400 293);
+
+  --destructive:            oklch(0.5800 0.2250 25);
+  --destructive-foreground: oklch(0.9850 0.0050 25);
+
+  --border:                 oklch(0.9050 0.0130 270);
+  --input:                  oklch(0.8950 0.0130 270);
+  --ring:                   oklch(0.5450 0.2200 293.5);
+
+  --success:                oklch(0.5400 0.1450 152);
+  --success-bg:             oklch(0.9500 0.0500 152);
+  --success-border:         oklch(0.8300 0.1100 152);
+
+  --warning:                oklch(0.5700 0.1550 65);
+  --warning-bg:             oklch(0.9500 0.0650 85);
+  --warning-border:         oklch(0.8500 0.1200 80);
+
+  --danger:                 oklch(0.5500 0.2200 25);
+  --danger-bg:              oklch(0.9550 0.0450 25);
+  --danger-border:          oklch(0.8500 0.1000 25);
+
+  --info:                   oklch(0.5300 0.1750 255);
+  --info-bg:                oklch(0.9500 0.0350 255);
+  --info-border:            oklch(0.8400 0.0800 255);
+
+  --neutral:                oklch(0.4500 0.0200 275);
+  --neutral-bg:             oklch(0.9450 0.0080 270);
+  --neutral-border:         oklch(0.8500 0.0120 270);
+}
+
+/* ---- Dark mode ------------------------------------------------------------
+   Follows OS-level preference (prefers-color-scheme) — the app has no
+   manual theme toggle, so system preference is the only source of truth. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background:             oklch(0.1600 0.0220 280);
+    --foreground:             oklch(0.9600 0.0100 280);
+
+    --card:                   oklch(0.2050 0.0250 280);
+    --card-foreground:        oklch(0.9600 0.0100 280);
+
+    --popover:                oklch(0.2150 0.0260 280);
+    --popover-foreground:     oklch(0.9600 0.0100 280);
+
+    --primary:                oklch(0.6650 0.1950 293.5);
+    --primary-hover:          oklch(0.7250 0.1800 293.5);
+    --primary-foreground:     oklch(0.1400 0.0250 280);
+
+    --brand:                  oklch(0.6650 0.1950 293.5);
+    --brand-2:                oklch(0.7100 0.1750 320);
+    --cyan:                   oklch(0.7600 0.1350 195);
+    --cyan-foreground:        oklch(0.1500 0.0350 220);
+
+    --secondary:              oklch(0.2650 0.0300 280);
+    --secondary-foreground:   oklch(0.9400 0.0100 280);
+
+    --muted:                  oklch(0.2500 0.0280 280);
+    --muted-foreground:       oklch(0.6900 0.0250 275);
+
+    --accent:                 oklch(0.3000 0.0650 293);
+    --accent-foreground:      oklch(0.8800 0.0500 293);
+
+    --destructive:            oklch(0.6600 0.1950 22);
+    --destructive-foreground: oklch(0.1400 0.0250 25);
+
+    --border:                 oklch(1 0 0 / 10%);
+    --input:                  oklch(1 0 0 / 14%);
+    --ring:                   oklch(0.6650 0.1950 293.5);
+
+    --success:                oklch(0.8100 0.1550 152);
+    --success-bg:             oklch(0.2800 0.0650 155);
+    --success-border:         oklch(0.4000 0.0950 155);
+
+    --warning:                oklch(0.8300 0.1400 85);
+    --warning-bg:             oklch(0.3000 0.0650 80);
+    --warning-border:         oklch(0.4300 0.0950 75);
+
+    --danger:                 oklch(0.7600 0.1750 22);
+    --danger-bg:              oklch(0.3000 0.0800 22);
+    --danger-border:          oklch(0.4300 0.1150 22);
+
+    --info:                   oklch(0.7500 0.1400 245);
+    --info-bg:                oklch(0.2800 0.0650 255);
+    --info-border:            oklch(0.4100 0.0950 255);
+
+    --neutral:                oklch(0.7500 0.0150 275);
+    --neutral-bg:             oklch(0.2600 0.0220 280);
+    --neutral-border:         oklch(0.3800 0.0250 275);
+  }
+}
+
+/* ---- Base resets -------------------------------------------------------- */
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    color-scheme: light dark;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, oklch(0.545 0.22 293.5 / 0.08), transparent);
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    background: oklch(0.545 0.22 293.5 / 0.25);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 999px;
+    border: 2px solid var(--background);
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--muted-foreground);
+    background-clip: padding-box;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-sans font-bold tracking-tight text-foreground;
+  }
+}
+
+/* ---- Typography scale ----------------------------------------------------
+   Utility classes layered on top of Tailwind so every page shares the same
+   heading rhythm instead of ad-hoc text-2xl/font-semibold combinations. */
+@layer components {
+  .text-display {
+    @apply text-3xl md:text-4xl font-extrabold tracking-tight leading-[1.1];
+  }
+  .text-page-title {
+    @apply text-2xl md:text-[1.75rem] font-bold tracking-tight leading-tight;
+  }
+  .text-section-title {
+    @apply text-base font-semibold tracking-tight;
+  }
+  .text-eyebrow {
+    @apply text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-muted-foreground;
+  }
+}
+
+/* ---- Motion ---------------------------------------------------------------
+   Small, purposeful keyframes — no animation library needed. Respects
+   prefers-reduced-motion so motion stays tasteful rather than gimmicky. */
+@layer utilities {
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes fade-in-up {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes slide-in-right {
+    from { opacity: 0; transform: translateX(16px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes scale-in {
+    from { opacity: 0; transform: scale(0.96); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+  }
+
+  .animate-fade-in { animation: fade-in 0.25s ease-out both; }
+  .animate-fade-in-up { animation: fade-in-up 0.32s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .animate-slide-in-right { animation: slide-in-right 0.28s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .animate-scale-in { animation: scale-in 0.18s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+  .stagger-in > * {
+    animation: fade-in-up 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .stagger-in > *:nth-child(1) { animation-delay: 0ms; }
+  .stagger-in > *:nth-child(2) { animation-delay: 30ms; }
+  .stagger-in > *:nth-child(3) { animation-delay: 60ms; }
+  .stagger-in > *:nth-child(4) { animation-delay: 90ms; }
+  .stagger-in > *:nth-child(5) { animation-delay: 120ms; }
+  .stagger-in > *:nth-child(6) { animation-delay: 150ms; }
+  .stagger-in > *:nth-child(n+7) { animation-delay: 180ms; }
+
+  .brand-gradient {
+    background-image: linear-gradient(135deg, var(--brand), var(--brand-2));
+  }
+  .brand-gradient-text {
+    background-image: linear-gradient(135deg, var(--brand), var(--brand-2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .ai-gradient {
+    background-image: linear-gradient(135deg, var(--brand) 0%, var(--brand-2) 55%, var(--cyan) 100%);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}

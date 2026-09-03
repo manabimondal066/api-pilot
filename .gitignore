@@ -1,0 +1,50 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+.venv/
+venv/
+env/
+.env
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# --- Node / Frontend ---
+node_modules/
+dist/
+build/
+.next/
+.nuxt/
+*.local
+
+# --- Environment & Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Editor & OS ---
+.DS_Store
+Thumbs.db
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# --- Docker ---
+*.log
+
+# --- Alembic ---
+# Keep versions/ tracked; ignore local override files
+alembic.ini.local
+
+# --- Storage ---
+# Ignore uploaded/stored files; keep the directory skeleton
+backend/storage/*
+!backend/storage/.gitkeep
