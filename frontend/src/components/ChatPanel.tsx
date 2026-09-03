@@ -383,7 +383,7 @@ export function ChatPanel({
           <Button
             size="icon"
             variant="brand"
-            onClick={sendMessage}
+            onClick={() => sendMessage()}
             disabled={sending || !input.trim()}
             aria-label="Send message"
           >
