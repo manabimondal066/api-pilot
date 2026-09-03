@@ -16,7 +16,6 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import async_engine_from_config
 
 # ---------------------------------------------------------------------------
 # Import app internals — must happen before metadata is accessed
@@ -24,6 +23,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.config import get_settings
 from app.db.base import Base
+from app.db.session import _split_sslmode
 
 # Import all model modules here so their tables are registered on Base.metadata.
 # This list grows as we add models in Sprint 1+.
@@ -88,9 +88,12 @@ def do_run_migrations(connection: Connection) -> None:
 
 async def run_async_migrations() -> None:
     """Create an async engine and drive migrations through a sync bridge."""
-    connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    database_url, connect_args = _split_sslmode(config.get_main_option("sqlalchemy.url"))
+    connectable = create_async_engine(
+        database_url,
+        connect_args=connect_args,
         poolclass=pool.NullPool,
     )
 
