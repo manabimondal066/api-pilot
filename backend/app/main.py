@@ -90,8 +90,7 @@ def create_app() -> FastAPI:
     origins = [
         "http://localhost:5173",  # Vite dev server
         "http://localhost:3000",  # CRA / alternative dev port
-         "https://api-pilot-frontend.vercel.app",
-
+        "https://api-pilot-frontend.vercel.app",
     ]
     application.add_middleware(
         CORSMiddleware,
