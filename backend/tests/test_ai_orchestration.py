@@ -2,6 +2,7 @@ import pytest
 
 from app.ai.providers.mock_provider import MockProvider
 from app.ai.schemas.test_case import (
+    Grounding,
     Severity,
     TestCase,
     TestCaseList,
@@ -64,6 +65,7 @@ def _make_seeded_response() -> TestCaseList:
                         description="Response has user id",
                         target="$.id",
                         severity=Severity.CRITICAL,
+                        grounding=Grounding.SPEC,
                     ),
                 ],
                 confidence=0.9,
@@ -161,6 +163,117 @@ async def test_generate_tests_raises_on_test_with_no_validations():
         await service.generate_tests(_make_endpoint(), max_retries=0)
 
 
+async def test_generate_tests_treats_missing_grounding_as_a_guess_not_an_error(caplog):
+    """A body-level validation (FIELD_EXISTS here) with no `grounding` is a
+    guess — that's fine, generation must still succeed (never raise, never
+    drop the test), but a warning is logged. The guessed validation is
+    persisted as informational so it can't fail the test on its own — see
+    app/services/validation_enforcement.py.
+    """
+    response = TestCaseList(
+        tests=[
+            TestCase(
+                name="Create user with valid input returns 201",
+                category=TestCategory.POSITIVE,
+                description="Happy path",
+                method=HttpMethod.POST,
+                path="/users",
+                validations=[
+                    Validation(
+                        type=ValidationType.STATUS_CODE,
+                        description="Status code is 201",
+                        expected=201,
+                    ),
+                    Validation(
+                        type=ValidationType.FIELD_EXISTS,
+                        description="Response has user id",
+                        target="$.id",
+                        # grounding deliberately omitted
+                    ),
+                ],
+            )
+        ]
+    )
+    provider = MockProvider()
+    provider.seed_structured(TestCaseList, response)
+    service = AIOrchestrationService(provider=provider)
+
+    with caplog.at_level("WARNING"):
+        tests = await service.generate_tests(_make_endpoint(), max_retries=0)
+
+    assert len(tests) == 1
+    assert any("no grounding set" in record.message for record in caplog.records)
+
+
+async def test_generate_tests_allows_status_code_only_test_without_grounding():
+    """STATUS_CODE doesn't inspect the response body, so it never needs
+    `grounding` — only body-level types do."""
+    response = TestCaseList(
+        tests=[
+            TestCase(
+                name="Create user with missing email returns 400",
+                category=TestCategory.NEGATIVE,
+                description="Missing required field",
+                method=HttpMethod.POST,
+                path="/users",
+                validations=[
+                    Validation(
+                        type=ValidationType.STATUS_CODE,
+                        description="Status code is 400",
+                        expected=400,
+                    ),
+                ],
+            )
+        ]
+    )
+    provider = MockProvider()
+    provider.seed_structured(TestCaseList, response)
+    service = AIOrchestrationService(provider=provider)
+
+    tests = await service.generate_tests(_make_endpoint(), max_retries=0)
+    assert len(tests) == 1
+
+
+async def test_generate_tests_warns_on_test_with_zero_binding_validations(caplog):
+    """A test whose only validation is an inferred (therefore informational)
+    body-level check ends up with no binding validation at all —
+    generation must still succeed (never drop the test or fabricate a
+    validation), but a warning is logged naming the test.
+    """
+    response = TestCaseList(
+        tests=[
+            TestCase(
+                name="Create user returns a token",
+                category=TestCategory.POSITIVE,
+                description="Happy path",
+                method=HttpMethod.POST,
+                path="/users",
+                validations=[
+                    Validation(
+                        type=ValidationType.FIELD_EXISTS,
+                        description="Response has a token",
+                        target="$.token",
+                        grounding=Grounding.INFERRED,
+                    ),
+                ],
+            )
+        ]
+    )
+    provider = MockProvider()
+    provider.seed_structured(TestCaseList, response)
+    service = AIOrchestrationService(provider=provider)
+
+    with caplog.at_level("WARNING"):
+        tests = await service.generate_tests(_make_endpoint(), max_retries=0)
+
+    assert len(tests) == 1
+    assert any(
+        "zero binding validations" in record.message
+        and "Create user returns a token" in record.message
+        for record in caplog.records
+    )
+
+
 async def test_prompt_version_is_exposed():
     service = AIOrchestrationService(provider=MockProvider())
     assert service.prompt_version
@@ -196,3 +309,72 @@ async def test_user_prompt_handles_empty_fields():
     assert "GET" in prompt
     assert "/ping" in prompt
     assert "(none)" in prompt or "(none required)" in prompt or "(no" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Phase B — probe-grounded generation: the observed-response block is
+# appended to the prompt only when both observed_status and observed_body
+# are supplied; the plain (no-probe) prompt is untouched otherwise.
+# ---------------------------------------------------------------------------
+
+
+async def test_generate_tests_prompt_unchanged_when_no_observed_response():
+    """The default call (observed_status/observed_body both None) must
+    send exactly build_user_prompt(endpoint), byte for byte — this is the
+    "flag off" guarantee for Phase B.
+    """
+    from app.ai.prompts.test_generation import build_user_prompt
+
+    provider = MockProvider()
+    provider.seed_structured(TestCaseList, _make_seeded_response())
+    service = AIOrchestrationService(provider=provider)
+    endpoint = _make_endpoint()
+
+    await service.generate_tests(endpoint)
+
+    assert provider.calls[0]["prompt"] == build_user_prompt(endpoint)
+
+
+async def test_generate_tests_appends_observed_response_block_when_given():
+    provider = MockProvider()
+    provider.seed_structured(TestCaseList, _make_seeded_response())
+    service = AIOrchestrationService(provider=provider)
+    endpoint = _make_endpoint()
+
+    await service.generate_tests(
+        endpoint,
+        observed_status=200,
+        observed_body='{"message": "otp generated", "otp_provider": "Static"}',
+    )
+
+    prompt = provider.calls[0]["prompt"]
+    assert "observed" in prompt.lower()
+    assert "Status: 200" in prompt
+    assert "otp generated" in prompt
+    assert "otp_provider" in prompt
+
+
+async def test_generate_tests_omits_observed_block_when_only_one_of_the_pair_given():
+    """Both observed_status and observed_body are required together — a
+    partial value (shouldn't happen from probe_service, but defensively)
+    must not produce a malformed half-block."""
+    provider = MockProvider()
+    provider.seed_structured(TestCaseList, _make_seeded_response())
+    service = AIOrchestrationService(provider=provider)
+    endpoint = _make_endpoint()
+
+    await service.generate_tests(endpoint, observed_status=200, observed_body=None)
+
+    assert "observed" not in provider.calls[0]["prompt"].lower()
+
+
+def test_build_observed_response_block_contains_status_and_body():
+    from app.ai.prompts.test_generation import build_observed_response_block
+
+    block = build_observed_response_block(200, '{"message": "otp generated"}')
+
+    assert "200" in block
+    assert "otp generated" in block
+    assert "grounding" in block
+    assert "observed" in block
+    assert "inferred" in block

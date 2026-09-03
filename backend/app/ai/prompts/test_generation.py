@@ -8,7 +8,7 @@ import json
 
 from app.parsers.models import ParsedEndpoint
 
-PROMPT_VERSION = "2b.3"
+PROMPT_VERSION = "2c.2"
 
 
 SYSTEM_PROMPT = """You are an expert API test designer. Your job is to generate \
@@ -42,6 +42,18 @@ If the spec only documents 2xx responses, your NEGATIVE tests should still use \
 plausible error codes (400 for malformed input, 401/403 for auth failures, 404 for \
 missing resources, 409 for conflicts). State this assumption in `ai_notes` for that \
 test.
+
+Grounding requirement for body-level validations (FIELD_EXISTS, FIELD_EQUALS, \
+FIELD_TYPE, FIELD_REGEX, FIELD_RANGE, SCHEMA_MATCH, CUSTOM_JSONPATH — anything that \
+inspects the response body's content): every one of these MUST set `grounding` to \
+'spec' if and only if the field name comes from a documented response schema you \
+were shown above. If no response schema was provided for this endpoint, or you are \
+inferring the field name from the endpoint's purpose or common API conventions, you \
+MUST set `grounding` to 'inferred'. Never claim 'spec' grounding for a field name you \
+have not been shown — inferring is expected and useful, it is simply recorded as a \
+suggestion rather than a hard requirement; claiming false grounding is a serious \
+error. STATUS_CODE and RESPONSE_TIME validations don't inspect the body, so `grounding` \
+does not apply to them.
 
 Use JSONPath syntax for `target` fields: $.user.id, $.items[0].name, etc.
 
@@ -137,7 +149,10 @@ def _format_auth(auth) -> str:
 
 
 def build_user_prompt(endpoint: ParsedEndpoint) -> str:
-    """Render the user-side prompt for a single endpoint."""
+    """Render the user-side prompt for a single endpoint. Unchanged by
+    probe-grounded generation (Phase B) — when there is no observed
+    response, the prompt sent to the model is exactly this, byte for byte.
+    """
     return USER_PROMPT_TEMPLATE.format(
         method=endpoint.method.value,
         path=endpoint.path,
@@ -151,3 +166,33 @@ def build_user_prompt(endpoint: ParsedEndpoint) -> str:
         auth=_format_auth(endpoint.auth),
         tags=", ".join(endpoint.tags) if endpoint.tags else "(none)",
     )
+
+
+# ---------------------------------------------------------------------------
+# Probe-grounded generation (Phase B) — an additional, clearly-delimited
+# block appended to the user prompt only when a probe actually succeeded
+# (see app/ai/service.py). Never touches build_user_prompt above, so the
+# no-probe prompt is untouched.
+# ---------------------------------------------------------------------------
+
+OBSERVED_RESPONSE_BLOCK_TEMPLATE = """
+---
+
+A real response from this endpoint has been observed. Status: {status}. Body: {body}
+
+This is verified evidence. When you write a validation about the response body, use \
+ONLY field names that actually appear in this observed response, and set `grounding` \
+to `observed`.
+
+Do NOT write a validation for a field that is not present in this response, even if \
+you would normally expect an API like this to return it. It is better to write two \
+checks you are certain about than five you are guessing at.
+
+If you genuinely need to check for a field that is not in this response, you may, but \
+you must set `grounding` to `inferred`."""
+
+
+def build_observed_response_block(status: int, body_text: str) -> str:
+    """Render the probe-observed-response block appended to the user
+    prompt when a probe succeeded (app/ai/service.py generate_tests)."""
+    return OBSERVED_RESPONSE_BLOCK_TEMPLATE.format(status=status, body=body_text)

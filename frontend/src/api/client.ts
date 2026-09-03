@@ -45,6 +45,15 @@ export interface SuiteDetailOut {
 
 export type TestCategory = "POSITIVE" | "NEGATIVE" | "EDGE";
 export type ValidationSeverity = "CRITICAL" | "WARNING";
+// Orthogonal to severity above — internal bookkeeping for whether this
+// validation's result is trusted enough to decide the test's overall
+// verdict. Never shown as a user-facing status; the only UI trace is a
+// small note in the test detail panel on an "informational" validation.
+// Optional: absent on any validation persisted before this existed, which
+// must be treated the same as "binding" (see the backend's defaulting
+// accessor, app.services.validation_enforcement.get_enforcement).
+export type ValidationEnforcement = "binding" | "informational";
+export type ValidationGrounding = "spec" | "observed" | "inferred";
 
 export interface ValidationOut {
   id: string;
@@ -53,6 +62,8 @@ export interface ValidationOut {
   target: string | null;
   expected: unknown;
   severity: ValidationSeverity;
+  enforcement?: ValidationEnforcement;
+  grounding?: ValidationGrounding | null;
 }
 
 export interface ExtractionOut {
@@ -131,6 +142,10 @@ export interface ValidationResultOut {
   actual: unknown;
   passed: boolean;
   error?: string;
+  // Absent on results recorded before this existed — treat as "binding"
+  // (same default the backend applies). Internal bookkeeping only; see
+  // ValidationEnforcement above.
+  enforcement?: ValidationEnforcement;
 }
 
 export interface RequestSnapshot {
@@ -338,9 +353,17 @@ export const api = {
     });
   },
 
-  async generateTests(endpointId: Uuid): Promise<TestOut[]> {
+  async generateTests(
+    endpointId: Uuid,
+    opts?: { useProbe?: boolean; environmentId?: Uuid | null }
+  ): Promise<TestOut[]> {
+    const useProbe = opts?.useProbe ?? false;
     return request<TestOut[]>(`/api/endpoints/${endpointId}/generate-tests`, {
       method: "POST",
+      body: JSON.stringify({
+        use_probe: useProbe,
+        environment_id: useProbe ? opts?.environmentId ?? null : null,
+      }),
     });
   },
 

@@ -64,6 +64,29 @@ async def test_add_validation_appends_and_bumps_version(db: AsyncSession):
     assert len(updated.validations) == 2
     assert updated.validations[1]["type"] == "FIELD_EXISTS"
     assert updated.version == 2
+    # A check the user explicitly asked for always counts — stamped
+    # 'binding' unconditionally, the classifier never runs on it.
+    assert updated.validations[1]["enforcement"] == "binding"
+
+
+async def test_add_validation_always_stamps_binding_regardless_of_type_or_grounding(
+    db: AsyncSession,
+):
+    """Unlike an AI-generated validation, a user/chat-added one is never run
+    through the classifier — even a type the engine doesn't implement, with
+    no grounding at all, is stamped 'binding' because the user explicitly
+    asked for it.
+    """
+    _, test_id = await _create_test(db)
+
+    updated = await test_service.add_validation(
+        db,
+        test_id,
+        DEFAULT_WORKSPACE_ID,
+        {"type": "RESPONSE_TIME", "description": "responds fast", "expected": 500},
+    )
+
+    assert updated.validations[1]["enforcement"] == "binding"
 
 
 async def test_add_validation_rejects_malformed_shape(db: AsyncSession):

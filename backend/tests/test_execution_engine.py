@@ -268,6 +268,167 @@ async def test_execute_failed_outcome_when_validation_fails():
     assert outcome.validation_results[0]["passed"] is False
 
 
+# ---------------------------------------------------------------------------
+# Internal enforcement safety net: a guessed/unimplemented validation is
+# recorded but can never fail the test on its own — verdict stays two-way
+# (passed/failed).
+# ---------------------------------------------------------------------------
+
+
+def test_evaluate_one_defaults_enforcement_to_binding_when_absent():
+    """A validation with no stored `enforcement` (i.e. persisted before
+    this classification existed) must be treated as binding, same as
+    today."""
+    validations = [{"type": "STATUS_CODE", "expected": 200, "description": "is 200"}]
+    results = run_validations(validations, _response(status_code=200))
+    assert results[0]["enforcement"] == "binding"
+
+
+def test_evaluate_one_reads_stored_informational_enforcement():
+    validations = [
+        {
+            "type": "FIELD_EXISTS",
+            "target": "$.missing",
+            "description": "guess",
+            "enforcement": "informational",
+        }
+    ]
+    results = run_validations(validations, _response(json_body={}))
+    assert results[0]["enforcement"] == "informational"
+    assert results[0]["passed"] is False
+
+
+def test_evaluate_one_forces_informational_for_unimplemented_type_even_if_stored_binding():
+    """The unimplemented-type override applies live, regardless of what was
+    stored — see execution_engine._effective_enforcement."""
+    validations = [
+        {
+            "type": "FIELD_REGEX",
+            "target": "$.x",
+            "description": "unsupported",
+            "enforcement": "binding",
+        }
+    ]
+    results = run_validations(validations, _response(json_body={"x": "y"}))
+    assert results[0]["enforcement"] == "informational"
+
+
+@respx.mock
+async def test_execute_passed_when_only_informational_validation_fails():
+    """Binding STATUS_CODE passes; an informational FIELD_EXISTS fails
+    (field genuinely absent from the real response, e.g. a guessed field
+    name) — the request behaved correctly by every check that counts, so
+    the verdict is 'passed'. The individual validation result still
+    records the failure plainly — nothing hidden, it just can't drag the
+    verdict down.
+    """
+    respx.get("https://api.example.com/pet/42").mock(
+        return_value=httpx.Response(200, json={"id": 42, "access": "tok-1"})
+    )
+    test = _test(
+        method="GET",
+        path="/pet/{{petId}}",
+        validations=[
+            {"type": "STATUS_CODE", "expected": 200, "description": "is 200"},
+            {
+                "type": "FIELD_EXISTS",
+                "target": "$.token",
+                "description": "has a token",
+                "enforcement": "informational",
+            },
+        ],
+    )
+    env = _environment(variables={"petId": "42"})
+
+    outcome = await execute(test, env)
+
+    assert outcome.status == "passed"
+    assert outcome.validation_results[0]["passed"] is True
+    assert outcome.validation_results[1]["passed"] is False
+
+
+@respx.mock
+async def test_execute_failed_when_binding_validation_fails_even_with_passing_informational():
+    respx.get("https://api.example.com/pet/42").mock(
+        return_value=httpx.Response(404, json={"id": 42})
+    )
+    test = _test(
+        method="GET",
+        path="/pet/{{petId}}",
+        validations=[
+            {"type": "STATUS_CODE", "expected": 200, "description": "is 200"},
+            {
+                "type": "FIELD_EXISTS",
+                "target": "$.id",
+                "description": "has id",
+                "enforcement": "informational",
+            },
+        ],
+    )
+    env = _environment(variables={"petId": "42"})
+
+    outcome = await execute(test, env)
+
+    assert outcome.status == "failed"
+
+
+@respx.mock
+async def test_execute_passed_when_only_unimplemented_type_validation_fails():
+    """A test carrying only an unimplemented validation type (RESPONSE_TIME
+    — always a synthetic 'not yet supported' failure) alongside a passing
+    binding STATUS_CODE reports 'passed', not 'failed' — the unsupported
+    check is informational and can't drag the verdict down.
+    """
+    respx.get("https://api.example.com/pet/42").mock(
+        return_value=httpx.Response(200, json={"id": 42})
+    )
+    test = _test(
+        method="GET",
+        path="/pet/{{petId}}",
+        validations=[
+            {"type": "STATUS_CODE", "expected": 200, "description": "is 200"},
+            {"type": "RESPONSE_TIME", "expected": 500, "description": "responds fast"},
+        ],
+    )
+    env = _environment(variables={"petId": "42"})
+
+    outcome = await execute(test, env)
+
+    assert outcome.status == "passed"
+
+
+@respx.mock
+async def test_execute_passed_when_unimplemented_type_explicitly_stamped_binding():
+    """The unimplemented-type override applies at verdict time regardless
+    of the stored `enforcement` value — even a RESPONSE_TIME validation
+    explicitly stamped 'binding' can't drag a test down, since the engine
+    can't actually evaluate it (see execution_engine._effective_enforcement).
+    """
+    respx.get("https://api.example.com/pet/42").mock(
+        return_value=httpx.Response(200, json={"id": 42})
+    )
+    test = _test(
+        method="GET",
+        path="/pet/{{petId}}",
+        validations=[
+            {"type": "STATUS_CODE", "expected": 200, "description": "is 200"},
+            {
+                "type": "RESPONSE_TIME",
+                "expected": 500,
+                "description": "responds fast",
+                "enforcement": "binding",
+            },
+        ],
+    )
+    env = _environment(variables={"petId": "42"})
+
+    outcome = await execute(test, env)
+
+    assert outcome.status == "passed"
+    assert outcome.validation_results[1]["enforcement"] == "informational"
+    assert outcome.validation_results[1]["enforcement"] == "informational"
+
+
 @respx.mock
 async def test_execute_error_outcome_on_connection_failure():
     respx.get("https://api.example.com/pet/42").mock(

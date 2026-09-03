@@ -53,6 +53,14 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-sonnet-4-5"
 
+    # Probe-grounded generation — replay a cURL-imported endpoint's stored
+    # example request once before generating tests, so body-level
+    # validations are grounded in a real observed response instead of a
+    # guess (app/services/probe_service.py). Off by default: this is the
+    # rollback switch — set ENABLE_PROBE_GENERATION=false to disable
+    # probing entirely without touching anything else.
+    enable_probe_generation: bool = False
+
 
 def get_settings() -> Settings:
     return Settings()

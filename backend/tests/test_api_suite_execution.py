@@ -273,6 +273,81 @@ async def test_suite_execution_skips_downstream_on_failure(
 
 
 # ---------------------------------------------------------------------------
+# An informational validation failure must not block dependents or discard
+# extractions — only a genuine (binding) failure does that
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+async def test_suite_execution_informational_failure_does_not_block_downstream(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """Create Pet's binding STATUS_CODE passes, but an informational
+    FIELD_EXISTS (a guessed field that genuinely isn't in the response)
+    fails — the verdict is still 'passed'. Get Pet depends on Create Pet
+    and must still run (not skipped) and must receive the id extracted
+    from Create Pet's response.
+    """
+    create_route = respx.post("https://api.example.com/pets").mock(
+        return_value=httpx.Response(201, json={"id": 99, "name": "Fido"})
+    )
+    get_route = respx.get("https://api.example.com/pets/99").mock(
+        return_value=httpx.Response(200, json={"id": 99, "name": "Fido"})
+    )
+
+    suite_id, test_ids = await _create_suite_with_tests(
+        db,
+        [
+            {
+                "name": "Create Pet",
+                "method": "POST",
+                "path": "/pets",
+                "body": {"name": "Fido"},
+                "validations": [
+                    STATUS_OK.copy() | {"expected": 201},
+                    {
+                        "type": "FIELD_EXISTS",
+                        "target": "$.token",
+                        "description": "has a token",
+                        "enforcement": "informational",
+                    },
+                ],
+                "extractions": [{"name": "petId", "source": "$.id"}],
+            },
+            {
+                "name": "Get Pet",
+                "method": "GET",
+                "path": "/pets/{{petId}}",
+                "validations": [STATUS_OK.copy()],
+                "depends_on": ["Create Pet"],
+            },
+        ],
+    )
+    environment_id = await _create_environment(db)
+
+    response = await client.post(
+        f"/api/suites/{suite_id}/execute", json={"environment_id": str(environment_id)}
+    )
+
+    assert response.status_code == 201, response.text
+    data = response.json()
+
+    by_test_name = {}
+    for execution in data:
+        for name, tid in test_ids.items():
+            if execution["test_id"] == str(tid):
+                by_test_name[name] = execution
+
+    assert create_route.called and get_route.called
+
+    assert by_test_name["Create Pet"]["results"][0]["status"] == "passed"
+    # Not skipped, and the id extracted from Create Pet's response still
+    # resolved into Get Pet's URL.
+    assert by_test_name["Get Pet"]["results"][0]["status"] == "passed"
+    assert get_route.calls.last.request.url.path == "/pets/99"
+
+
+# ---------------------------------------------------------------------------
 # no dependencies -> everything runs, nothing skipped
 # ---------------------------------------------------------------------------
 

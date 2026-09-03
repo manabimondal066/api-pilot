@@ -20,6 +20,13 @@ execute(test, environment) -> ExecutionOutcome
     timeout) -> run_validations, and returns everything needed to persist
     an ExecutionResult. Does not touch the DB — see
     app/services/execution_service.py for persistence.
+
+    Verdict: only a validation's `enforcement` of 'binding' (see
+    app/services/validation_enforcement.py) can affect the overall verdict —
+    any binding validation failing -> 'failed', otherwise -> 'passed'.
+    'informational' validations (an unimplemented type, or a guessed field
+    name with no real evidence behind it) still run and their result is
+    still recorded, they just can never fail the test on their own.
 """
 
 from __future__ import annotations
@@ -171,6 +178,28 @@ def build_request(
 _SUPPORTED_VALIDATION_TYPES = {"STATUS_CODE", "FIELD_EXISTS", "FIELD_EQUALS"}
 
 
+def _effective_enforcement(validation: dict[str, Any]) -> str:
+    """The enforcement actually used to decide a test's verdict — the
+    internal safety net that stops a guessed field name (or a validation
+    type the engine can't even evaluate) from producing a false failure.
+
+    This is the validation's stored `enforcement` (defaulting to 'binding'
+    for validations persisted before this classification existed — see
+    app.services.validation_enforcement.get_enforcement, kept in sync with
+    that same default here rather than imported, to avoid a circular import:
+    that module imports _SUPPORTED_VALIDATION_TYPES from this one), UNLESS
+    this validation's type isn't implemented below (_SUPPORTED_VALIDATION_TYPES)
+    — an unimplemented type's result is a synthetic "not yet supported"
+    failure, never a real check, so it can never decide the verdict no
+    matter what was stored. This override applies live, to every
+    validation regardless of when it was persisted.
+    """
+    if validation.get("type") not in _SUPPORTED_VALIDATION_TYPES:
+        return "informational"
+    value = validation.get("enforcement")
+    return value if value in ("binding", "informational") else "binding"
+
+
 def _resolve_jsonpath(response_json: Any, target: str) -> tuple[bool, Any]:
     """Return (found, value) for the first match of JSONPath *target*.
 
@@ -196,6 +225,7 @@ def _evaluate_one(validation: dict[str, Any], response: httpx.Response, response
         "type": v_type,
         "description": validation.get("description"),
         "severity": validation.get("severity", "CRITICAL"),
+        "enforcement": _effective_enforcement(validation),
     }
 
     if v_type == "STATUS_CODE":
@@ -356,7 +386,8 @@ async def execute(
     }
 
     validation_results = run_validations(test.validations or [], response)
-    passed = all(v.get("passed") for v in validation_results)
+    binding_results = [v for v in validation_results if v.get("enforcement") == "binding"]
+    passed = all(v.get("passed") for v in binding_results)
     status = "passed" if passed else "failed"
     extracted_variables = extract_variables(getattr(test, "extractions", None) or [], response_body)
 

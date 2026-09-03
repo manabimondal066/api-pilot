@@ -4,8 +4,8 @@ Execution + ExecutionResult models — deterministic test-run records (PRD
 run against an Environment, and its ExecutionResult captures exactly what
 was sent, what came back, and which validations passed or failed.
 
-Execution.status values:      'running' | 'completed' | 'error'
-ExecutionResult.status values: 'passed' | 'failed' | 'error'
+Execution.status values:      'running' | 'completed' | 'error' | 'skipped'
+ExecutionResult.status values: 'passed' | 'failed' | 'error' | 'skipped'
 
 V1 runs a single test synchronously (see app/services/execution_service.py
 docstring) so an Execution always has exactly one ExecutionResult. The two

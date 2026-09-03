@@ -51,6 +51,27 @@ function describeChange(tc: ChatToolCallOut, testNamesById: Record<Uuid, string>
   }
 }
 
+// ---------------------------------------------------------------------------
+// ask_user (Phase C) — the assistant asking a clarifying question instead
+// of guessing. Not a mutation, so it's derived separately from `changes`.
+// ---------------------------------------------------------------------------
+
+interface AskUserPrompt {
+  question: string;
+  options: string[];
+}
+
+function deriveAskUser(toolCalls: ChatToolCallOut[] | null | undefined): AskUserPrompt | null {
+  if (!toolCalls) return null;
+  const call = toolCalls.find((tc) => tc.tool === "ask_user" && !tc.error);
+  if (!call) return null;
+  const { question, options } = call.arguments as { question?: unknown; options?: unknown };
+  if (typeof question !== "string" || !Array.isArray(options)) return null;
+  const stringOptions = options.filter((o): o is string => typeof o === "string");
+  if (stringOptions.length === 0) return null;
+  return { question, options: stringOptions };
+}
+
 function messageFromChatError(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.status === 404) return "This suite couldn't be found.";
@@ -73,6 +94,7 @@ interface DisplayMessage {
   role: "user" | "assistant";
   content: string;
   changes?: ChatToolCallOut[];
+  askUser?: AskUserPrompt | null;
   interrupted?: boolean;
   pending?: boolean;
   failed?: boolean;
@@ -81,9 +103,14 @@ interface DisplayMessage {
 function MessageBubble({
   message,
   testNamesById,
+  onOptionSelect,
+  optionsDisabled,
 }: {
   message: DisplayMessage;
   testNamesById: Record<Uuid, string>;
+  /** Sends *text* as the next user message, exactly as if typed. */
+  onOptionSelect: (text: string) => void;
+  optionsDisabled: boolean;
 }) {
   const isUser = message.role === "user";
 
@@ -127,6 +154,22 @@ function MessageBubble({
               <p key={i} className="text-xs text-success px-2 py-1 rounded-md bg-success-bg/60 flex items-center gap-1.5 w-fit">
                 <CircleCheck className="h-3 w-3 shrink-0" /> {describeChange(tc, testNamesById)}
               </p>
+            ))}
+          </div>
+        )}
+
+        {message.askUser && (
+          <div className="flex flex-wrap gap-1.5 pl-1">
+            {message.askUser.options.map((opt) => (
+              <button
+                key={opt}
+                type="button"
+                disabled={optionsDisabled}
+                onClick={() => onOptionSelect(opt)}
+                className="rounded-full border border-primary/30 bg-accent/60 px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+              >
+                {opt}
+              </button>
             ))}
           </div>
         )}
@@ -199,6 +242,7 @@ export function ChatPanel({
             role: row.role,
             content: row.content,
             changes: deriveChanges(row.tool_calls),
+            askUser: deriveAskUser(row.tool_calls),
             interrupted: row.role === "assistant" && isInterrupted(row.content),
           }))
         );
@@ -219,13 +263,13 @@ export function ChatPanel({
     if (open) listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
   }, [messages, open, sending]);
 
-  function sendMessage() {
-    const text = input.trim();
+  function sendMessage(overrideText?: string) {
+    const text = (overrideText ?? input).trim();
     if (!text || sending) return;
 
     const localId = `local-${Date.now()}`;
     setMessages((prev) => [...prev, { id: localId, role: "user", content: text, pending: true }]);
-    setInput("");
+    if (overrideText === undefined) setInput("");
     setSending(true);
 
     api
@@ -238,6 +282,7 @@ export function ChatPanel({
             role: "assistant",
             content: result.reply,
             changes: result.changes,
+            askUser: deriveAskUser(result.tool_calls),
             interrupted: isInterrupted(result.reply),
           },
         ]);
@@ -311,7 +356,13 @@ export function ChatPanel({
           </div>
         ) : (
           messages.map((m) => (
-            <MessageBubble key={m.id} message={m} testNamesById={testNamesById} />
+            <MessageBubble
+              key={m.id}
+              message={m}
+              testNamesById={testNamesById}
+              onOptionSelect={sendMessage}
+              optionsDisabled={sending}
+            />
           ))
         )}
         {sending && <ChatWaitingIndicator />}

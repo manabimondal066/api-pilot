@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_workspace_id, get_db
-from app.schemas.api import TestOut
+from app.schemas.api import GenerateTestsIn, TestOut
 from app.services import EndpointNotFoundError, TestGenerationError
 from app.services import test_service
 
@@ -31,6 +31,7 @@ router = APIRouter()
 )
 async def generate_tests(
     endpoint_id: UUID,
+    payload: GenerateTestsIn | None = None,
     workspace_id: UUID = Depends(get_current_workspace_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[TestOut]:
@@ -39,12 +40,18 @@ async def generate_tests(
     This call is synchronous — it blocks until the LLM responds. Free-tier
     NIM has real connection/queue overhead, so this can take anywhere from
     ~25s to a minute or two. There is no background job queue in V1.
+
+    *payload* is optional (a request with no body behaves exactly as it
+    did before Phase B) — see GenerateTestsIn for use_probe/environment_id.
     """
+    opts = payload or GenerateTestsIn()
     try:
         tests = await test_service.generate_tests_for_endpoint(
             db=db,
             endpoint_id=endpoint_id,
             workspace_id=workspace_id,
+            use_probe=opts.use_probe,
+            environment_id=opts.environment_id,
         )
     except EndpointNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Endpoint not found") from exc
