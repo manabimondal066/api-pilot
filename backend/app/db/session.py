@@ -19,6 +19,7 @@ in main.py).
 
 from collections.abc import AsyncGenerator
 
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -27,18 +28,46 @@ from sqlalchemy.ext.asyncio import (
 
 from app.config import get_settings
 
+
+def _split_sslmode(database_url: str) -> tuple[str, dict]:
+    """Strip libpq-only query params (sslmode, channel_binding) from the URL
+    and translate them into asyncpg-native connect_args.
+
+    asyncpg's connect() only understands an `ssl` keyword, not the
+    `sslmode`/`channel_binding` query params libpq-style connection strings
+    (e.g. Neon's) use. SQLAlchemy's asyncpg dialect forwards every URL query
+    param straight through to asyncpg.connect(), so leaving `sslmode` in the
+    URL raises "unexpected keyword argument 'sslmode'". Local dev URLs have
+    no query params and are returned unchanged.
+    """
+    url = make_url(database_url)
+    query = dict(url.query)
+    sslmode = query.pop("sslmode", None)
+    query.pop("channel_binding", None)
+
+    connect_args: dict = {}
+    if sslmode and sslmode != "disable":
+        connect_args["ssl"] = True
+
+    if query != dict(url.query):
+        url = url.set(query=query)
+    return url.render_as_string(hide_password=False), connect_args
+
+
 # ---------------------------------------------------------------------------
 # Engine — created once, shared for the whole process lifetime
 # ---------------------------------------------------------------------------
 
 _settings = get_settings()
+_database_url, _connect_args = _split_sslmode(_settings.database_url)
 
 engine = create_async_engine(
-    _settings.database_url,
+    _database_url,
     echo=_settings.db_echo,
     pool_size=_settings.db_pool_size,
     max_overflow=_settings.db_max_overflow,
     pool_pre_ping=_settings.db_pool_pre_ping,
+    connect_args=_connect_args,
 )
 
 # ---------------------------------------------------------------------------
