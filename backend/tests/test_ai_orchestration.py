@@ -2,6 +2,7 @@ import pytest
 
 from app.ai.providers.mock_provider import MockProvider
 from app.ai.schemas.test_case import (
+    Grounding,
     Severity,
     TestCase,
     TestCaseList,
@@ -64,6 +65,7 @@ def _make_seeded_response() -> TestCaseList:
                         description="Response has user id",
                         target="$.id",
                         severity=Severity.CRITICAL,
+                        grounding=Grounding.SPEC,
                     ),
                 ],
                 confidence=0.9,
@@ -159,6 +161,113 @@ async def test_generate_tests_raises_on_test_with_no_validations():
 
     with pytest.raises(AIOrchestrationError, match="no validations"):
         await service.generate_tests(_make_endpoint(), max_retries=0)
+
+
+async def test_generate_tests_raises_when_body_level_validation_has_no_grounding():
+    """Fix B (brief §3.4): a body-level validation (FIELD_EXISTS here) MUST
+    carry `grounding` — a model response that omits it is treated the same
+    as any other incomplete structured output: fails safely via the
+    existing retry-then-error path, never persisted as-is.
+    """
+    bad_response = TestCaseList(
+        tests=[
+            TestCase(
+                name="Create user with valid input returns 201",
+                category=TestCategory.POSITIVE,
+                description="Happy path",
+                method=HttpMethod.POST,
+                path="/users",
+                validations=[
+                    Validation(
+                        type=ValidationType.STATUS_CODE,
+                        description="Status code is 201",
+                        expected=201,
+                    ),
+                    Validation(
+                        type=ValidationType.FIELD_EXISTS,
+                        description="Response has user id",
+                        target="$.id",
+                        # grounding deliberately omitted
+                    ),
+                ],
+            )
+        ]
+    )
+    provider = MockProvider()
+    provider.seed_structured(TestCaseList, bad_response)
+    service = AIOrchestrationService(provider=provider)
+
+    with pytest.raises(AIOrchestrationError, match="grounding"):
+        await service.generate_tests(_make_endpoint(), max_retries=0)
+
+
+async def test_generate_tests_allows_status_code_only_test_without_grounding():
+    """STATUS_CODE doesn't inspect the response body, so it never needs
+    `grounding` — only body-level types do."""
+    response = TestCaseList(
+        tests=[
+            TestCase(
+                name="Create user with missing email returns 400",
+                category=TestCategory.NEGATIVE,
+                description="Missing required field",
+                method=HttpMethod.POST,
+                path="/users",
+                validations=[
+                    Validation(
+                        type=ValidationType.STATUS_CODE,
+                        description="Status code is 400",
+                        expected=400,
+                    ),
+                ],
+            )
+        ]
+    )
+    provider = MockProvider()
+    provider.seed_structured(TestCaseList, response)
+    service = AIOrchestrationService(provider=provider)
+
+    tests = await service.generate_tests(_make_endpoint(), max_retries=0)
+    assert len(tests) == 1
+
+
+async def test_generate_tests_warns_on_test_with_zero_enforced_validations(caplog):
+    """Fix B item 8: a test whose only validation is an inferred (therefore
+    advisory) body-level check ends up with no enforced validation at all —
+    generation must still succeed (never drop the test or fabricate a
+    validation), but a warning is logged naming the test.
+    """
+    response = TestCaseList(
+        tests=[
+            TestCase(
+                name="Create user returns a token",
+                category=TestCategory.POSITIVE,
+                description="Happy path",
+                method=HttpMethod.POST,
+                path="/users",
+                validations=[
+                    Validation(
+                        type=ValidationType.FIELD_EXISTS,
+                        description="Response has a token",
+                        target="$.token",
+                        grounding=Grounding.INFERRED,
+                    ),
+                ],
+            )
+        ]
+    )
+    provider = MockProvider()
+    provider.seed_structured(TestCaseList, response)
+    service = AIOrchestrationService(provider=provider)
+
+    with caplog.at_level("WARNING"):
+        tests = await service.generate_tests(_make_endpoint(), max_retries=0)
+
+    assert len(tests) == 1
+    assert any(
+        "zero enforced validations" in record.message
+        and "Create user returns a token" in record.message
+        for record in caplog.records
+    )
 
 
 async def test_prompt_version_is_exposed():

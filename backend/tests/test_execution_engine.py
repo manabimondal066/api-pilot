@@ -268,6 +268,133 @@ async def test_execute_failed_outcome_when_validation_fails():
     assert outcome.validation_results[0]["passed"] is False
 
 
+# ---------------------------------------------------------------------------
+# Fix B — grounded validations: enforcement drives the verdict, not a flat
+# all()
+# ---------------------------------------------------------------------------
+
+
+def test_evaluate_one_defaults_enforcement_to_enforced_when_absent():
+    """A validation with no stored `enforcement` (i.e. persisted before
+    this feature existed) must be treated as enforced, same as today."""
+    validations = [{"type": "STATUS_CODE", "expected": 200, "description": "is 200"}]
+    results = run_validations(validations, _response(status_code=200))
+    assert results[0]["enforcement"] == "enforced"
+
+
+def test_evaluate_one_reads_stored_advisory_enforcement():
+    validations = [
+        {
+            "type": "FIELD_EXISTS",
+            "target": "$.missing",
+            "description": "guess",
+            "enforcement": "advisory",
+        }
+    ]
+    results = run_validations(validations, _response(json_body={}))
+    assert results[0]["enforcement"] == "advisory"
+    assert results[0]["passed"] is False
+
+
+def test_evaluate_one_forces_advisory_for_unimplemented_type_even_if_stored_enforced():
+    """The unimplemented-type override applies live, regardless of what was
+    stored — see execution_engine._effective_enforcement."""
+    validations = [
+        {
+            "type": "FIELD_REGEX",
+            "target": "$.x",
+            "description": "unsupported",
+            "enforcement": "enforced",
+        }
+    ]
+    results = run_validations(validations, _response(json_body={"x": "y"}))
+    assert results[0]["enforcement"] == "advisory"
+
+
+@respx.mock
+async def test_execute_inconclusive_when_only_advisory_validation_fails():
+    """Enforced STATUS_CODE passes; an advisory FIELD_EXISTS fails (field
+    genuinely absent from the real response) — the request behaved
+    correctly by every check that's trusted, so the verdict is
+    'inconclusive', not 'failed'.
+    """
+    respx.get("https://api.example.com/pet/42").mock(
+        return_value=httpx.Response(200, json={"id": 42, "access": "tok-1"})
+    )
+    test = _test(
+        method="GET",
+        path="/pet/{{petId}}",
+        validations=[
+            {"type": "STATUS_CODE", "expected": 200, "description": "is 200"},
+            {
+                "type": "FIELD_EXISTS",
+                "target": "$.token",
+                "description": "has a token",
+                "enforcement": "advisory",
+            },
+        ],
+    )
+    env = _environment(variables={"petId": "42"})
+
+    outcome = await execute(test, env)
+
+    assert outcome.status == "inconclusive"
+    # Individual results are still recorded plainly — nothing hidden.
+    assert outcome.validation_results[0]["passed"] is True
+    assert outcome.validation_results[1]["passed"] is False
+
+
+@respx.mock
+async def test_execute_failed_when_enforced_validation_fails_even_with_passing_advisory():
+    respx.get("https://api.example.com/pet/42").mock(
+        return_value=httpx.Response(404, json={"id": 42})
+    )
+    test = _test(
+        method="GET",
+        path="/pet/{{petId}}",
+        validations=[
+            {"type": "STATUS_CODE", "expected": 200, "description": "is 200"},
+            {
+                "type": "FIELD_EXISTS",
+                "target": "$.id",
+                "description": "has id",
+                "enforcement": "advisory",
+            },
+        ],
+    )
+    env = _environment(variables={"petId": "42"})
+
+    outcome = await execute(test, env)
+
+    assert outcome.status == "failed"
+
+
+@respx.mock
+async def test_execute_passed_when_unimplemented_type_would_have_failed_before():
+    """Demonstrates the accepted behaviour change (item 7): a test carrying
+    only an unimplemented validation type (RESPONSE_TIME — always a
+    synthetic 'not yet supported' failure) alongside a passing enforced
+    STATUS_CODE now reports 'inconclusive' rather than 'failed'.
+    """
+    respx.get("https://api.example.com/pet/42").mock(
+        return_value=httpx.Response(200, json={"id": 42})
+    )
+    test = _test(
+        method="GET",
+        path="/pet/{{petId}}",
+        validations=[
+            {"type": "STATUS_CODE", "expected": 200, "description": "is 200"},
+            {"type": "RESPONSE_TIME", "expected": 500, "description": "responds fast"},
+        ],
+    )
+    env = _environment(variables={"petId": "42"})
+
+    outcome = await execute(test, env)
+
+    assert outcome.status == "inconclusive"
+    assert outcome.validation_results[1]["enforcement"] == "advisory"
+
+
 @respx.mock
 async def test_execute_error_outcome_on_connection_failure():
     respx.get("https://api.example.com/pet/42").mock(

@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.ai.providers.factory import get_llm_provider
 from app.ai.schemas.test_case import (
+    Grounding,
     Severity,
     TestCase,
     TestCaseList,
@@ -152,6 +153,7 @@ async def test_execute_test_passed(client: AsyncClient, db: AsyncSession) -> Non
                 target="$.name",
                 expected="Fido",
                 severity=Severity.CRITICAL,
+                grounding=Grounding.SPEC,
             ),
         ],
     )
@@ -189,6 +191,7 @@ async def test_execute_test_failed_validation(client: AsyncClient, db: AsyncSess
                 target="$.name",
                 expected="Fido",
                 severity=Severity.CRITICAL,
+                grounding=Grounding.SPEC,
             ),
         ],
     )

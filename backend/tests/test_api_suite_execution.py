@@ -273,6 +273,80 @@ async def test_suite_execution_skips_downstream_on_failure(
 
 
 # ---------------------------------------------------------------------------
+# Fix B (R4) — an 'inconclusive' result must not block dependents or
+# discard extractions, unlike a genuine 'failed' result
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+async def test_suite_execution_inconclusive_dependency_does_not_block_downstream(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """Create Pet's enforced STATUS_CODE passes, but an advisory FIELD_EXISTS
+    (a field that genuinely isn't in the response) fails -> 'inconclusive'.
+    Get Pet depends on Create Pet and must still run (not skipped) and must
+    receive the id extracted from Create Pet's response.
+    """
+    create_route = respx.post("https://api.example.com/pets").mock(
+        return_value=httpx.Response(201, json={"id": 99, "name": "Fido"})
+    )
+    get_route = respx.get("https://api.example.com/pets/99").mock(
+        return_value=httpx.Response(200, json={"id": 99, "name": "Fido"})
+    )
+
+    suite_id, test_ids = await _create_suite_with_tests(
+        db,
+        [
+            {
+                "name": "Create Pet",
+                "method": "POST",
+                "path": "/pets",
+                "body": {"name": "Fido"},
+                "validations": [
+                    STATUS_OK.copy() | {"expected": 201},
+                    {
+                        "type": "FIELD_EXISTS",
+                        "target": "$.token",
+                        "description": "has a token",
+                        "enforcement": "advisory",
+                    },
+                ],
+                "extractions": [{"name": "petId", "source": "$.id"}],
+            },
+            {
+                "name": "Get Pet",
+                "method": "GET",
+                "path": "/pets/{{petId}}",
+                "validations": [STATUS_OK.copy()],
+                "depends_on": ["Create Pet"],
+            },
+        ],
+    )
+    environment_id = await _create_environment(db)
+
+    response = await client.post(
+        f"/api/suites/{suite_id}/execute", json={"environment_id": str(environment_id)}
+    )
+
+    assert response.status_code == 201, response.text
+    data = response.json()
+
+    by_test_name = {}
+    for execution in data:
+        for name, tid in test_ids.items():
+            if execution["test_id"] == str(tid):
+                by_test_name[name] = execution
+
+    assert create_route.called and get_route.called
+
+    assert by_test_name["Create Pet"]["results"][0]["status"] == "inconclusive"
+    # Not skipped, and the id extracted from the inconclusive Create Pet
+    # response still resolved into Get Pet's URL.
+    assert by_test_name["Get Pet"]["results"][0]["status"] == "passed"
+    assert get_route.calls.last.request.url.path == "/pets/99"
+
+
+# ---------------------------------------------------------------------------
 # no dependencies -> everything runs, nothing skipped
 # ---------------------------------------------------------------------------
 

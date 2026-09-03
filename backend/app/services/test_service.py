@@ -62,6 +62,7 @@ from app.services import (
     TestNotFoundError,
     ValidationNotFoundError,
 )
+from app.services.validation_enforcement import classify_enforcement
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -83,6 +84,18 @@ def _classify_generation_error(exc: Exception) -> str:
     when the reset_at is needed too (see generate_tests_for_endpoint below).
     """
     return classify_provider_error(exc).reason
+
+
+def _dump_validation(validation: Validation) -> dict[str, Any]:
+    """Dump one Validation to JSON and stamp its deterministic `enforcement`
+    (Fix B — app.services.validation_enforcement.classify_enforcement) —
+    the single place a validation's enforcement is decided and persisted,
+    shared by AI generation (below) and add_validation, so both write paths
+    stay consistent.
+    """
+    dumped = validation.model_dump(mode="json")
+    dumped["enforcement"] = classify_enforcement(dumped)
+    return dumped
 
 
 async def _load_endpoint(
@@ -157,7 +170,7 @@ async def generate_tests_for_endpoint(
             headers=t.headers,
             query_params=t.query_params,
             body=t.body,
-            validations=[v.model_dump(mode="json") for v in t.validations],
+            validations=[_dump_validation(v) for v in t.validations],
             extractions=[e.model_dump(mode="json") for e in t.extractions],
             depends_on=t.depends_on,
             confidence=t.confidence,
@@ -227,7 +240,7 @@ async def add_validation(
     """
     test = await get_test(db, test_id, workspace_id)
     validated = Validation.model_validate(validation)
-    test.validations = [*(test.validations or []), validated.model_dump(mode="json")]
+    test.validations = [*(test.validations or []), _dump_validation(validated)]
     test.version += 1
     await db.commit()
     await db.refresh(test)

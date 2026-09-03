@@ -226,10 +226,11 @@ async def execute_suite(
 ) -> list[ExecutionOut]:
     """Run every test in the suite against *payload.environment_id*,
     dependencies first (app/services/suite_execution_service.py). Values
-    extracted from a passed test's response are available to downstream
-    tests' `{{variable}}` references. A test whose dependency failed,
-    errored, or was itself skipped is recorded as status='skipped' rather
-    than executed. Deterministic — no AI is involved. Runs synchronously,
+    extracted from a passed (or inconclusive — see Fix B in
+    app/services/validation_enforcement.py) test's response are available
+    to downstream tests' `{{variable}}` references. A test whose dependency
+    failed, errored, or was itself skipped is recorded as status='skipped'
+    rather than executed. Deterministic — no AI is involved. Runs synchronously,
     one test at a time (no queue in V1), and returns the persisted
     Execution + result for every test in the suite.
 

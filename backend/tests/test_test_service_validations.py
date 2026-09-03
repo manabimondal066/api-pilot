@@ -64,6 +64,40 @@ async def test_add_validation_appends_and_bumps_version(db: AsyncSession):
     assert len(updated.validations) == 2
     assert updated.validations[1]["type"] == "FIELD_EXISTS"
     assert updated.version == 2
+    # Fix B: FIELD_EXISTS with no grounding supplied -> advisory, stamped
+    # server-side (never trusted from the caller).
+    assert updated.validations[1]["enforcement"] == "advisory"
+
+
+async def test_add_validation_stamps_enforced_for_status_code(db: AsyncSession):
+    _, test_id = await _create_test(db)
+
+    updated = await test_service.add_validation(
+        db,
+        test_id,
+        DEFAULT_WORKSPACE_ID,
+        {"type": "STATUS_CODE", "description": "is 204", "expected": 204},
+    )
+
+    assert updated.validations[1]["enforcement"] == "enforced"
+
+
+async def test_add_validation_stamps_enforced_when_grounded_in_spec(db: AsyncSession):
+    _, test_id = await _create_test(db)
+
+    updated = await test_service.add_validation(
+        db,
+        test_id,
+        DEFAULT_WORKSPACE_ID,
+        {
+            "type": "FIELD_EXISTS",
+            "description": "Response has id",
+            "target": "$.id",
+            "grounding": "spec",
+        },
+    )
+
+    assert updated.validations[1]["enforcement"] == "enforced"
 
 
 async def test_add_validation_rejects_malformed_shape(db: AsyncSession):

@@ -24,6 +24,20 @@ class Severity(str, Enum):
     WARNING = "WARNING"
 
 
+class Grounding(str, Enum):
+    """Where a body-level validation's expectation came from. Set by the
+    model at generation time (never derived from — and never merged with —
+    `Severity` above); a deterministic classifier turns this into each
+    validation's `enforcement` (app.services.validation_enforcement),
+    stamped on separately at persistence time rather than emitted by the
+    model.
+    """
+
+    SPEC = "spec"
+    OBSERVED = "observed"
+    INFERRED = "inferred"
+
+
 class TestCategory(str, Enum):
     POSITIVE = "POSITIVE"
     NEGATIVE = "NEGATIVE"
@@ -37,6 +51,15 @@ class Validation(BaseModel):
     target: str | None = Field(default=None, description="JSONPath like '$.user.id'")
     expected: Any | None = None
     severity: Severity = Severity.CRITICAL
+    grounding: Grounding | None = Field(
+        default=None,
+        description=(
+            "For body-level validations only: 'spec' if the field comes from "
+            "a documented response schema, 'observed' if from a real captured "
+            "response, 'inferred' if it's a guess. Not set by callers other "
+            "than the generation pipeline; not used for STATUS_CODE/RESPONSE_TIME."
+        ),
+    )
 
 
 class Extraction(BaseModel):

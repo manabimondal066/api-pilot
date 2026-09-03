@@ -8,7 +8,7 @@ import json
 
 from app.parsers.models import ParsedEndpoint
 
-PROMPT_VERSION = "2b.3"
+PROMPT_VERSION = "2c.1"
 
 
 SYSTEM_PROMPT = """You are an expert API test designer. Your job is to generate \
@@ -42,6 +42,18 @@ If the spec only documents 2xx responses, your NEGATIVE tests should still use \
 plausible error codes (400 for malformed input, 401/403 for auth failures, 404 for \
 missing resources, 409 for conflicts). State this assumption in `ai_notes` for that \
 test.
+
+Grounding requirement for body-level validations (FIELD_EXISTS, FIELD_EQUALS, \
+FIELD_TYPE, FIELD_REGEX, FIELD_RANGE, SCHEMA_MATCH, CUSTOM_JSONPATH — anything that \
+inspects the response body's content): every one of these MUST set `grounding` to \
+'spec' if and only if the field name comes from a documented response schema you \
+were shown above. If no response schema was provided for this endpoint, or you are \
+inferring the field name from the endpoint's purpose or common API conventions, you \
+MUST set `grounding` to 'inferred'. Never claim 'spec' grounding for a field name you \
+have not been shown — inferring is expected and useful, it is simply recorded as a \
+suggestion rather than a hard requirement; claiming false grounding is a serious \
+error. STATUS_CODE and RESPONSE_TIME validations don't inspect the body, so `grounding` \
+does not apply to them.
 
 Use JSONPath syntax for `target` fields: $.user.id, $.items[0].name, etc.
 

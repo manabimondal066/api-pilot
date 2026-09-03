@@ -45,6 +45,13 @@ export interface SuiteDetailOut {
 
 export type TestCategory = "POSITIVE" | "NEGATIVE" | "EDGE";
 export type ValidationSeverity = "CRITICAL" | "WARNING";
+// Orthogonal to severity above — whether this validation's result is
+// trusted enough to decide the test's overall verdict (Fix B). Optional:
+// absent on any validation persisted before this feature existed, which
+// must be treated the same as "enforced" (see the backend's defaulting
+// accessor, app.services.validation_enforcement.get_enforcement).
+export type ValidationEnforcement = "enforced" | "advisory";
+export type ValidationGrounding = "spec" | "observed" | "inferred";
 
 export interface ValidationOut {
   id: string;
@@ -53,6 +60,8 @@ export interface ValidationOut {
   target: string | null;
   expected: unknown;
   severity: ValidationSeverity;
+  enforcement?: ValidationEnforcement;
+  grounding?: ValidationGrounding | null;
 }
 
 export interface ExtractionOut {
@@ -119,7 +128,12 @@ export type EnvironmentUpdateIn = Partial<EnvironmentIn>;
 // Executions (deterministic test runs — no AI involved)
 // ---------------------------------------------------------------------------
 
-export type ExecutionResultStatus = "passed" | "failed" | "error" | "skipped";
+export type ExecutionResultStatus =
+  | "passed"
+  | "failed"
+  | "inconclusive"
+  | "error"
+  | "skipped";
 export type ExecutionStatus = "running" | "completed" | "error" | "skipped";
 
 export interface ValidationResultOut {
@@ -131,6 +145,9 @@ export interface ValidationResultOut {
   actual: unknown;
   passed: boolean;
   error?: string;
+  // Absent on results recorded before this feature existed — treat as
+  // "enforced" (same default the backend applies).
+  enforcement?: ValidationEnforcement;
 }
 
 export interface RequestSnapshot {

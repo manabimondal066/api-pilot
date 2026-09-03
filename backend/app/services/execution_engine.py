@@ -20,6 +20,13 @@ execute(test, environment) -> ExecutionOutcome
     timeout) -> run_validations, and returns everything needed to persist
     an ExecutionResult. Does not touch the DB — see
     app/services/execution_service.py for persistence.
+
+    Verdict (Fix B — grounded validations): a validation's `enforcement`
+    ('enforced' | 'advisory', see app/services/validation_enforcement.py)
+    decides whether its result can affect the overall verdict. Any
+    *enforced* validation failing -> 'failed'. All enforced validations
+    passing but one or more *advisory* validations failing -> 'inconclusive'.
+    Everything passing (or no advisory failures) -> 'passed'.
 """
 
 from __future__ import annotations
@@ -171,6 +178,26 @@ def build_request(
 _SUPPORTED_VALIDATION_TYPES = {"STATUS_CODE", "FIELD_EXISTS", "FIELD_EQUALS"}
 
 
+def _effective_enforcement(validation: dict[str, Any]) -> str:
+    """The enforcement actually used to decide a test's verdict (Fix B).
+
+    This is the validation's stored `enforcement` (defaulting to 'enforced'
+    for validations persisted before this feature existed — see
+    app.services.validation_enforcement.get_enforcement, kept in sync with
+    that same default here rather than imported, to avoid a circular import:
+    that module imports _SUPPORTED_VALIDATION_TYPES from this one), UNLESS
+    this validation's type isn't implemented below (_SUPPORTED_VALIDATION_TYPES)
+    — an unimplemented type's result is a synthetic "not yet supported"
+    failure, never a real check, so it can never decide the verdict no
+    matter what was stored. This override applies live, to every
+    validation regardless of when it was persisted.
+    """
+    if validation.get("type") not in _SUPPORTED_VALIDATION_TYPES:
+        return "advisory"
+    value = validation.get("enforcement")
+    return value if value in ("enforced", "advisory") else "enforced"
+
+
 def _resolve_jsonpath(response_json: Any, target: str) -> tuple[bool, Any]:
     """Return (found, value) for the first match of JSONPath *target*.
 
@@ -196,6 +223,7 @@ def _evaluate_one(validation: dict[str, Any], response: httpx.Response, response
         "type": v_type,
         "description": validation.get("description"),
         "severity": validation.get("severity", "CRITICAL"),
+        "enforcement": _effective_enforcement(validation),
     }
 
     if v_type == "STATUS_CODE":
@@ -282,7 +310,7 @@ def extract_variables(
 
 @dataclass
 class ExecutionOutcome:
-    status: str  # 'passed' | 'failed' | 'error' | 'skipped'
+    status: str  # 'passed' | 'failed' | 'inconclusive' | 'error' | 'skipped'
     request_snapshot: dict[str, Any]
     response_snapshot: dict[str, Any] | None = None
     validation_results: list[dict[str, Any]] = field(default_factory=list)
@@ -356,8 +384,15 @@ async def execute(
     }
 
     validation_results = run_validations(test.validations or [], response)
-    passed = all(v.get("passed") for v in validation_results)
-    status = "passed" if passed else "failed"
+    enforced_results = [v for v in validation_results if v.get("enforcement") == "enforced"]
+    advisory_results = [v for v in validation_results if v.get("enforcement") != "enforced"]
+    strict_passed = all(v.get("passed") for v in enforced_results)
+    if not strict_passed:
+        status = "failed"
+    elif any(not v.get("passed") for v in advisory_results):
+        status = "inconclusive"
+    else:
+        status = "passed"
     extracted_variables = extract_variables(getattr(test, "extractions", None) or [], response_body)
 
     return ExecutionOutcome(

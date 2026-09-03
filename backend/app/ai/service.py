@@ -16,6 +16,11 @@ from app.ai.providers.base import LLMProvider, LLMProviderError
 from app.ai.providers.factory import get_llm_provider
 from app.ai.schemas.test_case import TestCase, TestCaseList
 from app.parsers.models import ParsedEndpoint
+from app.services.validation_enforcement import (
+    BODY_LEVEL_TYPES,
+    ENFORCED,
+    classify_enforcement,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -116,5 +121,28 @@ class AIOrchestrationService:
             if not t.validations:
                 raise AIOrchestrationError(
                     f"Test {t.name!r} has no validations — AI output is incomplete"
+                )
+            # Grounding is required on every body-level validation (Fix B,
+            # brief §3.4) — a malformed/incomplete model response here fails
+            # safely via the existing retry-then-error path in
+            # generate_tests, same as the zero-validations check above.
+            for v in t.validations:
+                if v.type.value in BODY_LEVEL_TYPES and v.grounding is None:
+                    raise AIOrchestrationError(
+                        f"Test {t.name!r} validation {v.description!r} inspects the "
+                        "response body but has no grounding set — AI output is incomplete"
+                    )
+            # Diagnostic only (Fix B item 8): a test whose validations are
+            # all advisory can never report 'failed' — not wrong, but worth
+            # knowing about. Never drops the test or fabricates a validation.
+            enforcements = [classify_enforcement(v.model_dump(mode="json")) for v in t.validations]
+            if ENFORCED not in enforcements:
+                logger.warning(
+                    "generate_tests: test %r for endpoint=%s has zero enforced "
+                    "validations (all %d are advisory) — its verdict can never be "
+                    "'failed'",
+                    t.name,
+                    endpoint_id,
+                    len(t.validations),
                 )
         return tests
