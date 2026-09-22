@@ -233,7 +233,10 @@ def _evaluate_one(validation: dict[str, Any], response: httpx.Response, response
         actual = response.status_code
         result["expected"] = expected
         result["actual"] = actual
-        result["passed"] = actual == expected
+        if isinstance(expected, (list, tuple, set)):
+            result["passed"] = actual in expected
+        else:
+            result["passed"] = actual == expected
         return result
 
     if v_type == "FIELD_EXISTS":
